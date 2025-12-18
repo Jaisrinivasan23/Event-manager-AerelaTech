@@ -1,203 +1,81 @@
-# Event Scheduling & Resource Allocation System
+# Event Scheduler & Resource Manager
 
-A comprehensive Flask web application for managing events, resources, and their allocations with built-in conflict detection and reporting capabilities.
+[![Smoke Tests](https://github.com/Jaisrinivasan23/Event-Manager-Aerele/actions/workflows/smoke-test.yml/badge.svg)](https://github.com/Jaisrinivasan23/Event-Manager-Aerele/actions/workflows/smoke-test.yml)
 
-## 📋 Project Overview
+A compact, practical Flask app to manage events, resources and allocations with automatic conflict detection and lightweight reporting.
 
-This system allows organizations to efficiently manage events and resources by:
-- Creating and managing events with specific time slots
-- Maintaining a catalog of resources (rooms, equipment, instructors, etc.)
-- Allocating resources to events with automatic conflict detection
-- Generating utilization reports with upcoming bookings
-- Preventing double-booking through intelligent time-overlap detection
+---
 
-## ✨ Features
-
-### 1. Event Management (CRUD)
-- Create, read, update, and delete events
-- Store event details: title, start/end times, description
-- Automatic validation: start time must be before end time
-- Display event duration in hours
-- View all allocated resources per event
-
-### 2. Resource Management (CRUD)
-- Create, read, update, and delete resources
-- Categorize resources by type (Room, Equipment, Instructor, etc.)
-- Track total allocations per resource
-- Cascading deletion of associated allocations
-
-### 3. Resource Allocation
-- Allocate multiple resources to events
-- User-friendly interface with checkboxes for resource selection
-- Real-time conflict detection before saving
-- View all allocations with detailed information
-- Remove allocations individually
-
-### 4. Conflict Detection
-- **Intelligent Time-Overlap Algorithm**: Prevents double-booking by checking if:
-  ```
-  event1.start_time < event2.end_time AND event2.start_time < event1.end_time
-  ```
-- Validates conflicts during:
-  - Event creation/editing (when resources are already allocated)
-  - Resource allocation to events
-- Displays detailed conflict information with affected event names
-- Blocks operations that would create conflicts
-
-### 5. Resource Utilization Reports
-- Date-range based reporting
-- Calculate total hours used per resource
-- List upcoming bookings for each resource
-- Summary statistics dashboard:
-  - Total resources count
-  - Total hours used across all resources
-  - Total upcoming bookings
-- Visual presentation with Bootstrap cards and tables
-
-### 6. Sample Data Seeder
-- One-click database population
-- Creates 5 sample resources
-- Creates 4 sample events with realistic time slots
-- Generates 7 resource allocations
-- Useful for testing and demonstration
-
-## 🛠️ Tech Stack
-
-- **Backend**: Python 3.x, Flask
-- **Database**: SQLite with SQLAlchemy ORM
-- **Frontend**: HTML5, Bootstrap 5.3, Jinja2 Templates
-- **Icons**: Bootstrap Icons
-- **JavaScript**: Vanilla JS for client-side enhancements
-
-## 📁 Project Structure
-
-```
-event_scheduler/
-├── app.py                          # Main Flask application with all routes
-├── config.py                       # Configuration (database, secret key)
-├── models.py                       # SQLAlchemy models (Event, Resource, Allocation)
-├── events.db                       # SQLite database (auto-created)
-├── templates/
-│   ├── base.html                   # Base template with navbar
-│   ├── events/
-│   │   ├── list.html               # List all events
-│   │   ├── add.html                # Add event form
-│   │   └── edit.html               # Edit event form
-│   ├── resources/
-│   │   ├── list.html               # List all resources
-│   │   ├── add.html                # Add resource form
-│   │   └── edit.html               # Edit resource form
-│   ├── allocations/
-│   │   ├── allocate.html           # Allocate resources form
-│   │   └── list.html               # List all allocations
-│   └── reports/
-│       └── report.html             # Resource utilization report
-└── static/
-    ├── css/
-    │   └── style.css               # Custom CSS styles
-    └── js/
-        └── script.js               # Client-side JavaScript
-```
-
-## 🚀 Installation & Setup
-
-### Prerequisites
-- Python 3.7 or higher
-- pip (Python package manager)
-
-### Step 1: Install Dependencies
+## Quick Start (3 commands)
 
 ```bash
-pip install flask flask-sqlalchemy
-```
-
-### Step 2: Navigate to Project Directory
-
-```bash
-cd event_scheduler
-```
-
-### Step 3: Run the Application
-
-```bash
-python app.py
-```
-
-The application will start on `http://127.0.0.1:5000/`
-
-### Database Migrations (Flask-Migrate)
-
-If you've modified models (e.g., added the `category` field on `Resource`), use Flask-Migrate to apply schema changes safely:
-
-```bash
-# Install new dependency
+python -m venv venv
+venv\Scripts\activate    # PowerShell/Windows
 pip install -r requirements.txt
-
-# Create migration scripts (autogenerate changes)
-flask db init         # only if you haven't initialized migrations yet
-flask db migrate -m "Add category to Resource"
-
-# Apply migrations to the database
-flask db upgrade
+flask run
 ```
 
-Notes:
-- I added Flask-Migrate to `requirements.txt` and a sample migration `migrations/versions/0001_add_category.py` that adds the `category` column. If you prefer a quick in-place fix instead, you can also run:
+Open http://127.0.0.1:5000/ and use **Seed Data** to populate sample data.
 
-```bash
-python scripts/add_category_column.py
+---
+
+## Key Features (short)
+- Events CRUD with validation (start < end)
+- Resources CRUD with categories and quick inline add
+- Allocate multiple resources per event with conflict prevention
+- Date-range utilization report and upcoming bookings
+- Simple, testable codebase (smoke tests included)
+
+---
+
+## Architecture (visual)
+
+```mermaid
+flowchart LR
+  U[User] -->|HTTP| B(Browser)
+  B --> F(Flask App)
+  F --> M((SQLAlchemy Models))
+  M --> DB[(SQLite DB)]
+  F --> T[Jinja Templates]
+  F --> C{Conflict Check}
+  C --> M
 ```
 
-This script performs a non-destructive `ALTER TABLE` and heuristically fills common categories (Venue, Equipment, Person) for existing resources.
+## Allocation flow
 
-### Step 4: Load Sample Data (Optional)
+```mermaid
+flowchart LR
+  A[Create/Edit Event] --> B[Select Resources]
+  B --> C{Conflict?}
+  C -->|Yes| D[Show conflict & block]
+  C -->|No| E[Save allocation]
+```
 
-1. Open your browser and navigate to `http://127.0.0.1:5000/`
-2. Click on "Seed Data" in the navigation bar
-3. Sample events, resources, and allocations will be created
+---
 
-## 📖 Usage Guide
+## Screenshots
+_Add images under `static/img/screenshots/` and they will render here._
 
-### Adding Events
-1. Navigate to **Events** → **Add New Event**
-2. Fill in:
-   - Event title
-   - Start time (datetime)
-   - End time (datetime)
-   - Description (optional)
-3. System validates start_time < end_time
-4. Click "Add Event"
+![Home](static/img/screenshots/home.png)
+![Resources](static/img/screenshots/resources.png)
 
-### Adding Resources
-1. Navigate to **Resources** → **Add New Resource**
-2. Fill in:
-   - Resource name (e.g., "Conference Room A")
-   - Resource type (e.g., "Room", "Equipment", "Instructor")
-3. Click "Add Resource"
+---
 
-### Allocating Resources
-1. Navigate to **Allocate**
-2. Select an event from the dropdown
-3. Check one or more resources to allocate
-4. System automatically checks for conflicts
-5. If conflict detected: operation blocked with error message
-6. If no conflicts: allocation saved successfully
+## Quick commands
+- Run smoke tests: `python scripts/smoke_test.py`
+- Apply migrations: `flask db migrate -m "msg" && flask db upgrade` (requires Flask-Migrate)
+- Recreate DB (destructive): delete `events.db`, then start app and `/seed` to re-seed
 
-### Viewing Reports
-1. Navigate to **Reports**
-2. Select start and end dates
-3. Click "Generate"
-4. View:
-   - Resource name and type
-   - Total hours used in date range
-   - List of upcoming bookings
-   - Summary statistics
+---
 
-## 🔍 Conflict Detection Logic
+## Contributing
+- Keep changes small and add a smoke test for new behavior
+- Use `flask db migrate` for schema changes
 
-The system uses the following algorithm to detect time overlaps:
+---
 
-```python
+## License & Contact
+Educational, use freely. Questions? Open an issue or contact the author.
 def check_resource_conflict(resource_id, start_time, end_time, exclude_event_id=None):
     # Two events overlap if:
     # event1.start_time < event2.end_time AND event2.start_time < event1.end_time
