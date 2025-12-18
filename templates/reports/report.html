@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+
+{% block title %}Resource Utilization Report - Event Scheduler{% endblock %}
+
+{% block content %}
+<h2 class="text-2xl font-semibold mb-4"><i class="bi bi-graph-up"></i> Resource Utilization Report</h2>
+
+<div class="bg-white rounded-lg shadow mb-6">
+  <div class="px-6 py-4 bg-primary text-white rounded-t-lg">
+    <h5 class="mb-0">Select Date Range</h5>
+  </div>
+  <div class="px-6 py-6">
+    <form method="POST" action="{{ url_for('resource_report') }}">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+        <div class="md:col-span-5">
+          <label for="start_date" class="block text-sm font-medium text-gray-700">Start Date <span class="text-red-600">*</span></label>
+          <input type="date" id="start_date" name="start_date" value="{{ start_date.strftime('%Y-%m-%d') if start_date else '' }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+        </div>
+        <div class="md:col-span-5">
+          <label for="end_date" class="block text-sm font-medium text-gray-700">End Date <span class="text-red-600">*</span></label>
+          <input type="date" id="end_date" name="end_date" value="{{ end_date.strftime('%Y-%m-%d') if end_date else '' }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+        </div>
+        <div class="md:col-span-2">
+          <button type="submit" class="w-full inline-flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-md shadow hover:bg-primary/90"><i class="bi bi-search"></i> Generate</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if report_data %}
+  <div class="bg-white rounded-lg shadow">
+    <div class="px-6 py-4 bg-green-600 text-white rounded-t-lg">
+      <h5 class="mb-0">Report for {{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</h5>
+    </div>
+    <div class="px-6 py-6">
+      {% if report_data %}
+        <div class="overflow-x-auto">
+          <table class="min-w-full bg-white rounded-lg overflow-hidden">
+            <thead class="bg-gray-800 text-white text-left text-sm font-medium uppercase tracking-wider">
+              <tr>
+                <th class="px-4 py-3">Resource Name</th>
+                <th class="px-4 py-3">Type</th>
+                <th class="px-4 py-3">Category</th>
+                <th class="px-4 py-3">Total Hours Used</th>
+                <th class="px-4 py-3">Upcoming Bookings</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 text-sm">
+              {% for item in report_data %}
+              <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-semibold">{{ item.resource.resource_name }}</td>
+                <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">{{ item.resource.resource_type }}</span></td>
+                <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-50 text-gray-800 text-xs">{{ item.resource.category or '—' }}</span></td>
+                <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded bg-primary text-white text-xs">{{ item.total_hours }} hours</span></td>
+                <td class="px-4 py-3">
+                  {% if item.upcoming_bookings %}
+                    <ul class="list-none pl-0 mb-0">
+                      {% for booking in item.upcoming_bookings %}
+                      <li class="mb-2">
+                        <div class="flex items-start gap-2">
+                          <i class="bi bi-calendar-event text-green-600"></i>
+                          <div>
+                            <div class="font-medium">{{ booking.title }}</div>
+                            <div class="text-xs text-gray-500">{{ booking.start_time.strftime('%Y-%m-%d %H:%M') }} - {{ booking.end_time.strftime('%H:%M') }}</div>
+                          </div>
+                        </div>
+                      </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <div class="text-gray-500">No upcoming bookings</div>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-6">
+          <h5 class="mb-3">Summary Statistics</h5>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-gray-50 rounded p-4 text-center">
+              <h3 class="text-2xl font-semibold">{{ report_data|length }}</h3>
+              <p class="mb-0 text-sm">Total Resources</p>
+            </div>
+            <div class="bg-gray-50 rounded p-4 text-center">
+              <h3 class="text-2xl font-semibold">{{ report_data|sum(attribute='total_hours')|round(2) }}</h3>
+              <p class="mb-0 text-sm">Total Hours Used</p>
+            </div>
+            <div class="bg-gray-50 rounded p-4 text-center">
+              <h3 class="text-2xl font-semibold">{{ report_data|map(attribute='upcoming_bookings')|map('length')|sum }}</h3>
+              <p class="mb-0 text-sm">Upcoming Bookings</p>
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="border-l-4 p-4 mb-3 bg-accent/10 border-accent/40 text-accent">
+          <div class="flex items-center gap-2">
+            <i class="bi bi-info-circle"></i> No data found for the selected date range.
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}

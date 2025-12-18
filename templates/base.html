@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Event Scheduler{% endblock %}</title>
+    
+    <!-- Tailwind Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#6A00F4',   /* vibrant indigo */
+              accent: '#00D4FF',    /* bright cyan */
+              coral: '#FF6B6B',     /* coral accent */
+              lemon: '#FFD166'      /* warm lemon */
+            }
+          }
+        }
+      }
+    </script>
+
+    <!-- Bootstrap Icons (kept for existing icons) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    
+    <!-- Custom CSS (kept for overrides) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="bg-primary text-white">
+      <div class="max-w-7xl mx-auto px-4">
+        <div class="flex items-center justify-between h-16">
+          <a class="flex items-center gap-2 text-white font-semibold text-lg" href="{{ url_for('index') }}">
+            <i class="bi bi-calendar-event"></i>
+            <span>Event Scheduler</span>
+          </a>
+          <div class="hidden md:flex items-center space-x-4">
+            <a class="hover:bg-primary/10 px-3 py-2 rounded-md" href="{{ url_for('list_events') }}">
+              <i class="bi bi-calendar3"></i> Events
+            </a>
+            <a class="hover:bg-primary/10 px-3 py-2 rounded-md" href="{{ url_for('list_resources') }}">
+              <i class="bi bi-box"></i> Resources
+            </a>
+            <a class="hover:bg-primary/10 px-3 py-2 rounded-md" href="{{ url_for('allocate_resource') }}">
+              <i class="bi bi-link-45deg"></i> Allocate
+            </a>
+            <a class="hover:bg-primary/10 px-3 py-2 rounded-md" href="{{ url_for('list_allocations') }}">
+              <i class="bi bi-list-check"></i> Allocations
+            </a>
+            <a class="hover:bg-primary/10 px-3 py-2 rounded-md" href="{{ url_for('resource_report') }}">
+              <i class="bi bi-graph-up"></i> Reports
+            </a>
+            <a class="hover:bg-primary/10 px-3 py-2 rounded-md" href="{{ url_for('seed_data') }}">
+              <i class="bi bi-database-fill-add"></i> Seed Data
+            </a>
+          </div>
+
+          <!-- Mobile menu button -->
+          <div class="md:hidden">
+            <button id="nav-toggle" class="p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-white">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 6h16M4 12h16M4 18h16"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Mobile menu -->
+        <div id="nav-menu" class="hidden md:hidden pb-4">
+          <a class="block px-3 py-2 hover:bg-primary/10 rounded-md" href="{{ url_for('list_events') }}">Events</a>
+          <a class="block px-3 py-2 hover:bg-primary/10 rounded-md" href="{{ url_for('list_resources') }}">Resources</a>
+          <a class="block px-3 py-2 hover:bg-primary/10 rounded-md" href="{{ url_for('allocate_resource') }}">Allocate</a>
+          <a class="block px-3 py-2 hover:bg-primary/10 rounded-md" href="{{ url_for('list_allocations') }}">Allocations</a>
+          <a class="block px-3 py-2 hover:bg-primary/10 rounded-md" href="{{ url_for('resource_report') }}">Reports</a>
+          <a class="block px-3 py-2 hover:bg-primary/10 rounded-md" href="{{ url_for('seed_data') }}">Seed Data</a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    <div class="max-w-7xl mx-auto px-4 mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {% set classes = {
+                        'success':'bg-green-50 border-green-400 text-green-700',
+                        'danger':'bg-red-50 border-red-400 text-red-700',
+                        'warning':'bg-yellow-50 border-yellow-400 text-yellow-700',
+                        'info':'bg-accent/10 border-accent/40 text-accent'
+                    }[category] if category in ['success','danger','warning','info'] else 'bg-gray-50 border-gray-300 text-gray-700' %} 
+                    <div class="border-l-4 p-4 mb-3 {{ classes }}" role="alert">
+                        <div class="flex justify-between items-start">
+                          <div>{{ message }}</div>
+                          <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-gray-500 hover:text-gray-700">✕</button>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto my-8 px-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-100 text-center text-gray-600 py-6 mt-8">
+        <div class="max-w-7xl mx-auto px-4">
+            <p class="mb-0">&copy; 2025 Event Scheduling & Resource Allocation System</p>
+        </div>
+    </footer>
+
+    <!-- Small interaction scripts -->
+    <script>
+      // Mobile nav toggle
+      const navToggle = document.getElementById('nav-toggle');
+      const navMenu = document.getElementById('nav-menu');
+      if (navToggle) {
+        navToggle.addEventListener('click', () => {
+          navMenu.classList.toggle('hidden');
+        });
+      }
+    </script>
+    
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

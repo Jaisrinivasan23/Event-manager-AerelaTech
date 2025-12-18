@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Resource - Event Scheduler{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="bg-white rounded-lg shadow">
+    <div class="px-6 py-4 bg-yellow-400 text-gray-900 rounded-t-lg">
+      <h4 class="mb-0 text-lg font-semibold"><i class="bi bi-pencil"></i> Edit Resource</h4>
+    </div>
+    <div class="px-6 py-6">
+      <form method="POST" action="{{ url_for('edit_resource', resource_id=resource.resource_id) }}">
+        <div class="mb-4">
+          <label for="resource_name" class="block text-sm font-medium text-gray-700">Resource Name <span class="text-red-600">*</span></label>
+          <input type="text" id="resource_name" name="resource_name" value="{{ resource.resource_name }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+        </div>
+
+        <div class="mb-4">
+          <label for="resource_type" class="block text-sm font-medium text-gray-700">Resource Type <span class="text-red-600">*</span></label>
+          <input type="text" id="resource_type" name="resource_type" value="{{ resource.resource_type }}" required list="resource_types" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+          <datalist id="resource_types">
+            <option value="Room">
+            <option value="Equipment">
+            <option value="Instructor">
+            <option value="Vehicle">
+            <option value="Computer">
+            <option value="Lab">
+          </datalist>
+        </div>
+
+        <div class="mb-4">
+          <label for="category" class="block text-sm font-medium text-gray-700">Category</label>
+          <input list="category_list_common" id="category" name="category" value="{{ resource.category or '' }}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" placeholder="e.g., Venue, Person, Equipment" />
+          <datalist id="category_list_common">
+            <option value="Venue">
+            <option value="Person">
+            <option value="Equipment">
+            <option value="Instructor">
+            <option value="Vehicle">
+          </datalist>
+        </div>
+        <div class="border-l-4 p-4 my-4 bg-yellow-50 border-yellow-400 text-yellow-700">
+          <div class="flex items-start gap-2"><i class="bi bi-exclamation-triangle"></i>
+            <div>This resource has {{ resource.allocations|length }} allocation(s). Editing won't affect existing allocations.</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between mt-6">
+          <a href="{{ url_for('list_resources') }}" class="inline-flex items-center px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700">
+            <i class="bi bi-arrow-left"></i> Back
+          </a>
+          <button type="submit" class="inline-flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-md shadow hover:bg-yellow-600">
+            <i class="bi bi-check-circle"></i> Update Resource
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

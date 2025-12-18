@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}Events List - Event Scheduler{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-2xl font-semibold"><i class="bi bi-calendar3"></i> Events</h2>
+    <a href="{{ url_for('add_event') }}" class="inline-flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-md shadow hover:bg-primary/90">
+        <i class="bi bi-plus-circle"></i> Add New Event
+    </a>
+</div>
+
+{% if events %}
+  <div class="overflow-x-auto">
+    <table class="min-w-full bg-white rounded-lg shadow overflow-hidden">
+      <thead class="bg-gray-800 text-white text-left text-sm font-medium uppercase tracking-wider">
+        <tr>
+          <th class="px-4 py-3">ID</th>
+          <th class="px-4 py-3">Title</th>
+          <th class="px-4 py-3">Start Time</th>
+          <th class="px-4 py-3">End Time</th>
+          <th class="px-4 py-3">Duration</th>
+          <th class="px-4 py-3">Allocated Resources</th>
+          <th class="px-4 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100 text-sm">
+        {% for event in events %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 align-top">{{ event.event_id }}</td>
+          <td class="px-4 py-3">
+            <div class="font-semibold">{{ event.title }}</div>
+            {% if event.description %}
+            <div class="text-gray-500 text-xs mt-1">{{ event.description[:80] }}{% if event.description|length > 80 %}...{% endif %}</div>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">{{ event.start_time.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="px-4 py-3">{{ event.end_time.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="px-4 py-3">{{ "%.1f"|format(event.duration_hours()) }} hrs</td>
+          <td class="px-4 py-3">
+            {% if event.resources %}
+              {% for resource in event.resources %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs font-medium mr-1">{{ resource.resource_name }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="text-gray-400 text-sm">No resources</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <a href="{{ url_for('edit_event', event_id=event.event_id) }}" class="inline-flex items-center px-2 py-1 rounded bg-yellow-500 hover:bg-yellow-600 text-white text-sm" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="POST" action="{{ url_for('delete_event', event_id=event.event_id) }}" onsubmit="return confirm('Are you sure you want to delete this event?');" class="inline-block">
+                <button type="submit" class="inline-flex items-center px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-sm" title="Delete">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="border-l-4 p-4 mb-3 bg-accent/10 border-accent/40 text-accent">
+    <div class="flex items-center gap-2">
+      <i class="bi bi-info-circle"></i>
+      <div>
+        No events found. <a href="{{ url_for('add_event') }}" class="underline">Add your first event</a> or <a href="{{ url_for('seed_data') }}" class="underline">load sample data</a>.
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}

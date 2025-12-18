@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}Allocate Resources - Event Scheduler{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="bg-white rounded-lg shadow">
+    <div class="px-6 py-4 bg-green-600 text-white rounded-t-lg">
+      <h4 class="mb-0 text-lg font-semibold"><i class="bi bi-link-45deg"></i> Allocate Resources to Event</h4>
+    </div>
+    <div class="px-6 py-6">
+      {% if not events or not resources %}
+        <div class="border-l-4 p-4 mb-3 bg-yellow-50 border-yellow-400 text-yellow-700">
+          <div class="flex items-start gap-2"><i class="bi bi-exclamation-triangle"></i>
+            <div>You need at least one event and one resource before allocating. 
+              {% if not events %}<a href="{{ url_for('add_event') }}" class="underline">Add an event</a>{% endif %}
+              {% if not resources %}{% if not events %} or {% endif %}<a href="{{ url_for('add_resource') }}" class="underline">Add a resource</a>{% endif %}, or <a href="{{ url_for('seed_data') }}" class="underline">load sample data</a>.
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <form method="POST" action="{{ url_for('allocate_resource') }}">
+          <div class="mb-4">
+            <label for="event_id" class="block text-sm font-medium text-gray-700">Select Event <span class="text-red-600">*</span></label>
+            <select id="event_id" name="event_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2">
+              <option value="">-- Choose an event --</option>
+              {% for event in events %}
+              <option value="{{ event.event_id }}">{{ event.title }} ({{ event.start_time.strftime('%Y-%m-%d %H:%M') }} - {{ event.end_time.strftime('%H:%M') }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700">Select Resources <span class="text-red-600">*</span></label>
+            <div class="bg-gray-50 rounded p-3 border border-gray-100">
+              {% for resource in resources %}
+              <label for="resource_{{ resource.resource_id }}" class="flex items-center gap-3 p-2 rounded hover:bg-gray-100">
+                <input type="checkbox" name="resource_ids" value="{{ resource.resource_id }}" id="resource_{{ resource.resource_id }}" class="h-4 w-4 text-primary border-gray-300 rounded" />
+                <div>
+                  <div class="font-medium">{{ resource.resource_name }}</div>
+                  <div class="text-xs text-gray-500">{{ resource.resource_type }}</div>
+                </div>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="text-sm text-gray-500 mt-2">Select one or more resources to allocate to the event. The system will check for conflicts automatically.</div>
+          </div>
+
+          <div class="border-l-4 p-4 my-4 bg-accent/10 border-accent/40 text-accent">
+            <div class="flex items-start gap-2"><i class="bi bi-info-circle"></i>
+              <div><strong>Conflict Detection:</strong> The system will automatically detect if any selected resource is already allocated to another event during the same time period and prevent the allocation.</div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between mt-6">
+            <a href="{{ url_for('list_allocations') }}" class="inline-flex items-center px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700"><i class="bi bi-arrow-left"></i> Back</a>
+            <button type="submit" class="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-md shadow hover:bg-green-700"><i class="bi bi-check-circle"></i> Allocate Resources</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Event - Event Scheduler{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="bg-white rounded-lg shadow">
+    <div class="px-6 py-4 bg-yellow-400 text-gray-900 rounded-t-lg">
+      <h4 class="mb-0 text-lg font-semibold"><i class="bi bi-pencil"></i> Edit Event</h4>
+    </div>
+    <div class="px-6 py-6">
+      <form method="POST" action="{{ url_for('edit_event', event_id=event.event_id) }}">
+        <div class="mb-4">
+          <label for="title" class="block text-sm font-medium text-gray-700">Event Title <span class="text-red-600">*</span></label>
+          <input type="text" id="title" name="title" value="{{ event.title }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="start_time" class="block text-sm font-medium text-gray-700">Start Time <span class="text-red-600">*</span></label>
+            <input type="datetime-local" id="start_time" name="start_time" value="{{ event.start_time.strftime('%Y-%m-%dT%H:%M') }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+          </div>
+
+          <div>
+            <label for="end_time" class="block text-sm font-medium text-gray-700">End Time <span class="text-red-600">*</span></label>
+            <input type="datetime-local" id="end_time" name="end_time" value="{{ event.end_time.strftime('%Y-%m-%dT%H:%M') }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+          <textarea id="description" name="description" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2">{{ event.description or '' }}</textarea>
+        </div>
+
+        <div class="border-l-4 p-4 my-4 bg-blue-50 border-blue-400 text-blue-700">
+          <div class="flex items-start gap-2"><i class="bi bi-info-circle"></i>
+            <div>Changing event times will check for resource conflicts with existing allocations.</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between mt-6">
+          <a href="{{ url_for('list_events') }}" class="inline-flex items-center px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700">
+            <i class="bi bi-arrow-left"></i> Back
+          </a>
+          <button type="submit" class="inline-flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-md shadow hover:bg-yellow-600">
+            <i class="bi bi-check-circle"></i> Update Event
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
