@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Register - Event Scheduler{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/10 to-accent/10 py-8">
+    <div class="w-full max-w-md">
+        <div class="bg-white shadow-2xl rounded-lg p-8">
+            <div class="text-center mb-8">
+                <i class="bi bi-person-plus-fill text-6xl text-primary"></i>
+                <h2 class="text-3xl font-bold text-gray-800 mt-2">Create Account</h2>
+                <p class="text-gray-600 mt-1">Register for a new account</p>
+            </div>
+
+            <form method="POST" action="{{ url_for('register') }}">
+                <!-- Username -->
+                <div class="mb-4">
+                    <label for="username" class="block text-gray-700 font-medium mb-2">
+                        <i class="bi bi-person"></i> Username
+                    </label>
+                    <input type="text" 
+                           id="username" 
+                           name="username" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" 
+                           placeholder="Choose a username"
+                           required>
+                </div>
+
+                <!-- Email -->
+                <div class="mb-4">
+                    <label for="email" class="block text-gray-700 font-medium mb-2">
+                        <i class="bi bi-envelope"></i> Email Address
+                    </label>
+                    <input type="email" 
+                           id="email" 
+                           name="email" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" 
+                           placeholder="Enter your email"
+                           required>
+                </div>
+
+                <!-- Password -->
+                <div class="mb-4">
+                    <label for="password" class="block text-gray-700 font-medium mb-2">
+                        <i class="bi bi-lock"></i> Password
+                    </label>
+                    <input type="password" 
+                           id="password" 
+                           name="password" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" 
+                           placeholder="Choose a password"
+                           minlength="6"
+                           required>
+                </div>
+
+                <!-- Confirm Password -->
+                <div class="mb-6">
+                    <label for="confirm_password" class="block text-gray-700 font-medium mb-2">
+                        <i class="bi bi-lock-fill"></i> Confirm Password
+                    </label>
+                    <input type="password" 
+                           id="confirm_password" 
+                           name="confirm_password" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" 
+                           placeholder="Confirm your password"
+                           minlength="6"
+                           required>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" 
+                        class="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-lg transition duration-200">
+                    <i class="bi bi-person-check"></i> Create Account
+                </button>
+            </form>
+
+            <!-- Login Link -->
+            <div class="text-center mt-6">
+                <p class="text-gray-600">
+                    Already have an account? 
+                    <a href="{{ url_for('login') }}" class="text-primary hover:underline font-medium">
+                        Sign in
+                    </a>
+                </p>
+            </div>
+
+            <!-- Note -->
+            <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p class="text-sm text-blue-700">
+                    <i class="bi bi-info-circle"></i> 
+                    New accounts are created with <strong>Viewer</strong> role. Contact an admin to upgrade your permissions.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
