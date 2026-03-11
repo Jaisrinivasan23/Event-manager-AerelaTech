@@ -32,9 +32,173 @@
           <textarea id="description" name="description" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2">{{ event.description or '' }}</textarea>
         </div>
 
-        <div class="border-l-4 p-4 my-4 bg-blue-50 border-blue-400 text-blue-700">
+        <div class="mt-4">
+          <label for="expected_attendees" class="block text-sm font-medium text-gray-700">Expected Attendees</label>
+          <input type="number" id="expected_attendees" name="expected_attendees" min="0" value="{{ event.expected_attendees or 0 }}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
+          <p class="text-xs text-gray-500 mt-1">Used for room capacity validation. All times are in IST (Asia/Kolkata)</p>
+        </div>
+
+        <!-- Current & Update Resource Allocations -->
+        <div class="mt-6 border-t pt-4">
+          <h5 class="text-lg font-semibold text-gray-800 mb-2">
+            <i class="bi bi-box"></i> Resource Allocations
+          </h5>
+          
+          {% if event.allocations %}
+          <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-3">
+            <p class="text-sm font-medium text-blue-800 mb-2">Currently Allocated:</p>
+            <ul class="text-sm text-blue-700 space-y-1">
+              {% for alloc in event.allocations %}
+              <li>
+                <i class="bi bi-check-circle-fill"></i> {{ alloc.resource.resource_name }}
+                {% if alloc.reserved_quantity > 1 %}({{ alloc.reserved_quantity }} units){% endif %}
+                <span class="text-xs bg-blue-100 px-2 py-0.5 rounded ml-1">{{ alloc.resource.category }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          <p class="text-sm text-gray-600 mb-4">Update resource allocations below. Unchecking removes allocation.</p>
+          
+          <!-- Category Filter -->
+          <div class="mb-4 flex items-center gap-3 bg-gray-50 p-3 rounded">
+            <label for="category-filter" class="text-sm font-medium text-gray-700">
+              <i class="bi bi-funnel"></i> Filter by Category:
+            </label>
+            <select id="category-filter" class="rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2 text-sm">
+              <option value="all">All Categories</option>
+              <option value="venue">Venues Only</option>
+              <option value="equipment">Equipment Only</option>
+              <option value="person">Instructors/Staff Only</option>
+            </select>
+            <span class="text-xs text-gray-500 ml-2" id="resource-count"></span>
+          </div>
+          
+          {% if resources %}
+          {% set venues = resources|selectattr('category', 'equalto', 'Venue')|list %}
+          {% set equipment = resources|selectattr('category', 'equalto', 'Equipment')|list %}
+          {% set persons = resources|selectattr('category', 'equalto', 'Person')|list %}
+          
+          <div class="space-y-4 max-h-96 overflow-y-auto border border-gray-200 rounded p-4">
+            
+            <!-- Venues Section -->
+            {% if venues %}
+            <div class="border-b pb-3">
+              <h6 class="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <i class="bi bi-building"></i> Venues
+              </h6>
+              <div class="space-y-2 ml-4">
+                {% for resource in venues %}
+                {% set is_allocated = resource.resource_id in allocated_resource_ids %}
+                <div class="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded {% if is_allocated %}bg-green-50{% endif %}">
+                  <input type="checkbox" id="resource_{{ resource.resource_id }}" name="resource_ids" value="{{ resource.resource_id }}" {% if is_allocated %}checked{% endif %} class="mt-1 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded">
+                  <div class="flex-1">
+                    <label for="resource_{{ resource.resource_id }}" class="font-medium text-gray-700 cursor-pointer">
+                      {{ resource.resource_name }}
+                      {% if is_allocated %}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <i class="bi bi-check-circle-fill mr-1"></i> Allocated
+                      </span>
+                      {% endif %}
+                    </label>
+                    <div class="text-xs text-gray-500 mt-1">
+                      {% if resource.capacity %}
+                        <i class="bi bi-people"></i> Capacity: {{ resource.capacity }} people
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            
+            <!-- Equipment Section -->
+            {% if equipment %}
+            <div class="border-b pb-3">
+              <h6 class="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <i class="bi bi-tools"></i> Equipment
+              </h6>
+              <div class="space-y-2 ml-4">
+                {% for resource in equipment %}
+                {% set is_allocated = resource.resource_id in allocated_resource_ids %}
+                {% set current_qty = allocated_quantities.get(resource.resource_id, 1) %}
+                <div class="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded {% if is_allocated %}bg-green-50{% endif %}">
+                  <input type="checkbox" id="resource_{{ resource.resource_id }}" name="resource_ids" value="{{ resource.resource_id }}" {% if is_allocated %}checked{% endif %} class="mt-1 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded">
+                  <div class="flex-1">
+                    <label for="resource_{{ resource.resource_id }}" class="font-medium text-gray-700 cursor-pointer">
+                      {{ resource.resource_name }}
+                      {% if is_allocated %}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <i class="bi bi-check-circle-fill mr-1"></i> Allocated
+                      </span>
+                      {% endif %}
+                    </label>
+                    <div class="text-xs text-gray-500 mt-1">
+                      {% if resource.quantity %}
+                        <i class="bi bi-box"></i> Available: {{ resource.quantity }} units
+                      {% else %}
+                        <i class="bi bi-box"></i> Equipment
+                      {% endif %}
+                    </div>
+                    <div class="mt-1">
+                      <label for="qty_{{ resource.resource_id }}" class="text-xs text-gray-600">Quantity:</label>
+                      <input type="number" id="qty_{{ resource.resource_id }}" name="quantity_{{ resource.resource_id }}" min="1" {% if resource.quantity %}max="{{ resource.quantity }}"{% endif %} value="{{ current_qty }}" class="ml-2 w-20 px-2 py-1 text-sm border border-gray-300 rounded" {% if not is_allocated %}disabled{% endif %}>
+                    </div>
+                    <script>
+                      document.getElementById('resource_{{ resource.resource_id }}').addEventListener('change', function() {
+                        document.getElementById('qty_{{ resource.resource_id }}').disabled = !this.checked;
+                      });
+                    </script>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            
+            <!-- Persons/Instructors Section -->
+            {% if persons %}
+            <div>
+              <h6 class="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <i class="bi bi-person"></i> Instructors/Staff
+              </h6>
+              <div class="space-y-2 ml-4">
+                {% for resource in persons %}
+                {% set is_allocated = resource.resource_id in allocated_resource_ids %}
+                <div class="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded {% if is_allocated %}bg-green-50{% endif %}">
+                  <input type="checkbox" id="resource_{{ resource.resource_id }}" name="resource_ids" value="{{ resource.resource_id }}" {% if is_allocated %}checked{% endif %} class="mt-1 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded">
+                  <div class="flex-1">
+                    <label for="resource_{{ resource.resource_id }}" class="font-medium text-gray-700 cursor-pointer">
+                      {{ resource.resource_name }}
+                      {% if is_allocated %}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <i class="bi bi-check-circle-fill mr-1"></i> Allocated
+                      </span>
+                      {% endif %}
+                    </label>
+                    <div class="text-xs text-gray-500 mt-1">
+                      {% if resource.max_hours_per_day %}
+                        <i class="bi bi-clock"></i> Max hours/day: {{ resource.max_hours_per_day }}h
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            
+          </div>
+          {% else %}
+          <p class="text-gray-500 italic">No resources available.</p>
+          {% endif %}
+        </div>
+
+        <div class="border-l-4 p-4 my-4 bg-yellow-50 border-yellow-400 text-yellow-700">
           <div class="flex items-start gap-2"><i class="bi bi-info-circle"></i>
-            <div>Changing event times will check for resource conflicts with existing allocations.</div>
+            <div>Changing event times or resources will check for conflicts.</div>
           </div>
         </div>
 
@@ -43,11 +207,72 @@
             <i class="bi bi-arrow-left"></i> Back
           </a>
           <button type="submit" class="inline-flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-md shadow hover:bg-yellow-600">
-            <i class="bi bi-check-circle"></i> Update Event
+            <i class="bi bi-check-circle"></i> Update Event & Allocations
           </button>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+<script>
+// Category filter functionality
+const categoryFilter = document.getElementById('category-filter');
+const resourceCountEl = document.getElementById('resource-count');
+
+// Find sections by icon classes
+const venueSectionEl = Array.from(document.querySelectorAll('.border-b.pb-3')).find(el => 
+  el.querySelector('.bi-building')
+);
+const equipmentSectionEl = Array.from(document.querySelectorAll('.border-b.pb-3')).find(el => 
+  el.querySelector('.bi-tools')
+);
+const personSectionEl = Array.from(document.querySelectorAll('div')).find(el => 
+  el.querySelector('.bi-person') && el.classList.contains('space-y-2')
+)?.parentElement;
+
+function updateCategoryFilter() {
+  const selectedCategory = categoryFilter.value;
+  let visibleCount = 0;
+  
+  // Show/hide sections based on selection
+  if (venueSectionEl) {
+    if (selectedCategory === 'all' || selectedCategory === 'venue') {
+      venueSectionEl.style.display = 'block';
+      visibleCount += venueSectionEl.querySelectorAll('input[type="checkbox"]').length;
+    } else {
+      venueSectionEl.style.display = 'none';
+    }
+  }
+  
+  if (equipmentSectionEl) {
+    if (selectedCategory === 'all' || selectedCategory === 'equipment') {
+      equipmentSectionEl.style.display = 'block';
+      visibleCount += equipmentSectionEl.querySelectorAll('input[type="checkbox"]').length;
+    } else {
+      equipmentSectionEl.style.display = 'none';
+    }
+  }
+  
+  if (personSectionEl) {
+    if (selectedCategory === 'all' || selectedCategory === 'person') {
+      personSectionEl.style.display = 'block';
+      visibleCount += personSectionEl.querySelectorAll('input[type="checkbox"]').length;
+    } else {
+      personSectionEl.style.display = 'none';
+    }
+  }
+  
+  // Update count
+  if (resourceCountEl) {
+    resourceCountEl.textContent = `(${visibleCount} resources shown)`;
+  }
+}
+
+if (categoryFilter) {
+  categoryFilter.addEventListener('change', updateCategoryFilter);
+  // Initialize count on page load
+  updateCategoryFilter();
+}
+</script>
 {% endblock %}

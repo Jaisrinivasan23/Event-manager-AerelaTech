@@ -170,6 +170,10 @@ def check_resource_conflict(resource_id, start_time, end_time, exclude_event_id=
     
     # For equipment, check if total quantity exceeds available
     if resource and resource.category == 'Equipment' and conflicts:
+        # If no quantity is set, treat as unlimited or return conflict
+        if resource.quantity is None or resource.quantity == 0:
+            return conflicts  # No quantity tracking, treat as traditional conflict
+        
         total_allocated = sum(c['allocation'].reserved_quantity for c in conflicts)
         if total_allocated + requested_quantity > resource.quantity:
             return conflicts
@@ -226,6 +230,13 @@ def validate_resource_allocation(resource_id, event_id, requested_quantity=1):
     event = Event.query.get(event_id)
     errors = []
     
+    # Validate requested quantity for equipment
+    if resource.category == 'Equipment' and resource.quantity:
+        if requested_quantity > resource.quantity:
+            errors.append(f"Requested quantity ({requested_quantity}) exceeds available quantity ({resource.quantity}) for {resource.resource_name}")
+        elif requested_quantity < 1:
+            errors.append(f"Quantity must be at least 1")
+    
     # Check room capacity
     if resource.category == 'Venue' and event.expected_attendees > 0:
         valid, msg = check_room_capacity(resource_id, event.expected_attendees)
@@ -274,26 +285,30 @@ def add_event():
         end_time_str = request.form.get('end_time')
         description = request.form.get('description')
         expected_attendees = request.form.get('expected_attendees', 0, type=int)
-        timezone = request.form.get('timezone', 'UTC')
+        timezone = 'Asia/Kolkata'  # Fixed to IST
+        resource_ids = request.form.getlist('resource_ids')
         
         # Validate inputs
         if not title or not start_time_str or not end_time_str:
             flash('Title, start time, and end time are required!', 'danger')
-            return redirect(url_for('add_event'))
+            resources = Resource.query.order_by(Resource.resource_name).all()
+            return render_template('events/add.html', resources=resources)
         
         try:
             start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
             end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M')
         except ValueError:
             flash('Invalid date/time format!', 'danger')
-            return redirect(url_for('add_event'))
+            resources = Resource.query.order_by(Resource.resource_name).all()
+            return render_template('events/add.html', resources=resources)
         
         # Validate start_time < end_time
         if start_time >= end_time:
             flash('Start time must be before end time!', 'danger')
-            return redirect(url_for('add_event'))
+            resources = Resource.query.order_by(Resource.resource_name).all()
+            return render_template('events/add.html', resources=resources)
         
-        # Create new event
+        # Create new event (but don't commit yet)
         new_event = Event(
             title=title,
             start_time=start_time,
@@ -305,12 +320,83 @@ def add_event():
         )
         
         db.session.add(new_event)
+        db.session.flush()  # Get event_id without committing
+        
+        # Validate and allocate resources if selected
+        if resource_ids:
+            conflicts_found = False
+            for resource_id in resource_ids:
+                resource_id = int(resource_id)
+                
+                # Get quantity for equipment
+                quantity_key = f'quantity_{resource_id}'
+                requested_qty = request.form.get(quantity_key, 1, type=int)
+                
+                # Validate allocation
+                valid, errors = validate_resource_allocation(resource_id, new_event.event_id, requested_qty)
+                
+                if not valid:
+                    for error in errors:
+                        flash(error, 'danger')
+                    conflicts_found = True
+            
+            if conflicts_found:
+                db.session.rollback()
+                resources = Resource.query.order_by(Resource.resource_name).all()
+                return render_template('events/add.html', resources=resources)
+            
+            # All validations passed, create allocations
+            for resource_id in resource_ids:
+                resource_id = int(resource_id)
+                quantity_key = f'quantity_{resource_id}'
+                requested_qty = request.form.get(quantity_key, 1, type=int)
+                
+                allocation = EventResourceAllocation(
+                    event_id=new_event.event_id,
+                    resource_id=resource_id,
+                    reserved_quantity=requested_qty
+                )
+                db.session.add(allocation)
+        
         db.session.commit()
         
-        flash(f'Event "{title}" added successfully!', 'success')
+        if resource_ids:
+            flash(f'Event "{title}" created and {len(resource_ids)} resource(s) allocated successfully!', 'success')
+        else:
+            flash(f'Event "{title}" created successfully!', 'success')
         return redirect(url_for('list_events'))
     
-    return render_template('events/add.html')
+    # GET request - show form with available resources
+    # Get time range from query params if provided (for filtering)
+    start_time_str = request.args.get('start_time')
+    end_time_str = request.args.get('end_time')
+    
+    all_resources = Resource.query.order_by(Resource.category, Resource.resource_name).all()
+    
+    # Filter out resources that are already allocated/conflicting if time is specified
+    if start_time_str and end_time_str:
+        try:
+            start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
+            end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M')
+            
+            available_resources = []
+            for resource in all_resources:
+                conflicts = check_resource_conflict(
+                    resource.resource_id,
+                    start_time,
+                    end_time,
+                    requested_quantity=1  # Check if at least 1 unit is available
+                )
+                if not conflicts:  # No conflicts, resource is available
+                    available_resources.append(resource)
+            
+            resources = available_resources
+        except ValueError:
+            resources = all_resources
+    else:
+        resources = all_resources
+    
+    return render_template('events/add.html', resources=resources, start_time=start_time_str, end_time=end_time_str)
 
 
 @app.route('/events/edit/<int:event_id>', methods=['GET', 'POST'])
@@ -324,6 +410,9 @@ def edit_event(event_id):
         start_time_str = request.form.get('start_time')
         end_time_str = request.form.get('end_time')
         description = request.form.get('description')
+        timezone = 'Asia/Kolkata'  # Fixed to IST
+        expected_attendees_str = request.form.get('expected_attendees')
+        resource_ids = request.form.getlist('resource_ids')  # Get selected resources
         
         if not title or not start_time_str or not end_time_str:
             flash('Title, start time, and end time are required!', 'danger')
@@ -332,41 +421,123 @@ def edit_event(event_id):
         try:
             start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
             end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M')
+            expected_attendees = int(expected_attendees_str) if expected_attendees_str else None
         except ValueError:
-            flash('Invalid date/time format!', 'danger')
+            flash('Invalid date/time or attendees format!', 'danger')
             return redirect(url_for('edit_event', event_id=event_id))
         
         if start_time >= end_time:
             flash('Start time must be before end time!', 'danger')
             return redirect(url_for('edit_event', event_id=event_id))
         
-        # Check for resource conflicts if time changed
-        if start_time != event.start_time or end_time != event.end_time:
-            for allocation in event.allocations:
+        if expected_attendees and expected_attendees < 1:
+            flash('Expected attendees must be at least 1!', 'danger')
+            return redirect(url_for('edit_event', event_id=event_id))
+        
+        # Convert resource_ids to integers
+        resource_ids = [int(rid) for rid in resource_ids] if resource_ids else []
+        
+        # Get current allocations
+        current_allocations = {alloc.resource_id: alloc for alloc in event.allocations}
+        current_resource_ids = set(current_allocations.keys())
+        new_resource_ids = set(resource_ids)
+        
+        # Validate new resource allocations
+        for resource_id in resource_ids:
+            resource = Resource.query.get(resource_id)
+            if not resource:
+                flash(f'Invalid resource selected!', 'danger')
+                return redirect(url_for('edit_event', event_id=event_id))
+            
+            # Get quantity for equipment
+            quantity = 1
+            if resource.category == 'Equipment':
+                quantity_str = request.form.get(f'quantity_{resource_id}')
+                try:
+                    quantity = int(quantity_str) if quantity_str else 1
+                    if quantity < 1:
+                        flash(f'Quantity for "{resource.resource_name}" must be at least 1!', 'danger')
+                        return redirect(url_for('edit_event', event_id=event_id))
+                except ValueError:
+                    flash(f'Invalid quantity for "{resource.resource_name}"!', 'danger')
+                    return redirect(url_for('edit_event', event_id=event_id))
+            
+            # Check resource conflicts (only if time changed or resource is new)
+            if (start_time != event.start_time or end_time != event.end_time or 
+                resource_id not in current_resource_ids):
                 conflicts = check_resource_conflict(
-                    allocation.resource_id, 
+                    resource_id, 
                     start_time, 
-                    end_time, 
+                    end_time,
+                    requested_quantity=quantity,
                     exclude_event_id=event_id
                 )
                 if conflicts:
-                    conflict_titles = ', '.join([e.title for e in conflicts])
-                    flash(f'Resource conflict detected for "{allocation.resource.resource_name}" '
+                    conflict_titles = ', '.join([c['event'].title for c in conflicts])
+                    flash(f'Resource conflict detected for "{resource.resource_name}" '
                           f'with events: {conflict_titles}', 'danger')
                     return redirect(url_for('edit_event', event_id=event_id))
+            
+            # Validate resource rules
+            valid, errors = validate_resource_allocation(
+                resource_id, event_id, quantity
+            )
+            if not valid:
+                for error in errors:
+                    flash(error, 'danger')
+                return redirect(url_for('edit_event', event_id=event_id))
         
-        # Update event
+        # Update event basic fields
         event.title = title
         event.start_time = start_time
         event.end_time = end_time
         event.description = description
+        event.timezone = timezone
+        event.expected_attendees = expected_attendees
+        
+        # Update resource allocations
+        # Remove allocations that are no longer selected
+        resources_to_remove = current_resource_ids - new_resource_ids
+        for resource_id in resources_to_remove:
+            allocation = current_allocations[resource_id]
+            db.session.delete(allocation)
+        
+        # Add or update allocations
+        for resource_id in resource_ids:
+            resource = Resource.query.get(resource_id)
+            quantity = 1
+            if resource.category == 'Equipment':
+                quantity_str = request.form.get(f'quantity_{resource_id}')
+                quantity = int(quantity_str) if quantity_str else 1
+            
+            if resource_id in current_allocations:
+                # Update existing allocation quantity
+                current_allocations[resource_id].reserved_quantity = quantity
+            else:
+                # Create new allocation
+                allocation = EventResourceAllocation(
+                    event_id=event.id,
+                    resource_id=resource_id,
+                    reserved_quantity=quantity
+                )
+                db.session.add(allocation)
         
         db.session.commit()
         
         flash(f'Event "{title}" updated successfully!', 'success')
         return redirect(url_for('list_events'))
     
-    return render_template('events/edit.html', event=event)
+    # GET request - prepare data for template
+    resources = Resource.query.order_by(Resource.category, Resource.resource_name).all()
+    allocated_resource_ids = {alloc.resource_id for alloc in event.allocations}
+    allocated_quantities = {alloc.resource_id: alloc.reserved_quantity for alloc in event.allocations}
+    
+    return render_template('events/edit.html', 
+                         event=event, 
+                         resources=resources,
+                         allocated_resource_ids=allocated_resource_ids,
+                         allocated_quantities=allocated_quantities)
+
 
 
 @app.route('/events/delete/<int:event_id>', methods=['POST'])
@@ -482,84 +653,38 @@ def delete_resource(resource_id):
     return redirect(url_for('list_resources'))
 
 
-# ==================== ALLOCATION ROUTES ====================
-
-@app.route('/allocate', methods=['GET', 'POST'])
-@organiser_or_admin_required
-def allocate_resource():
-    """Allocate resources to events"""
-    if request.method == 'POST':
-        event_id = request.form.get('event_id')
-        resource_ids = request.form.getlist('resource_ids')
-        
-        if not event_id or not resource_ids:
-            flash('Please select an event and at least one resource!', 'danger')
-            return redirect(url_for('allocate_resource'))
-        
-        event = Event.query.get_or_404(event_id)
-        
-        # Check for conflicts
-        conflicts_found = False
-        for resource_id in resource_ids:
-            conflicts = check_resource_conflict(
-                int(resource_id),
-                event.start_time,
-                event.end_time,
-                exclude_event_id=event.event_id
-            )
-            
-            if conflicts:
-                resource = Resource.query.get(resource_id)
-                conflict_titles = ', '.join([e.title for e in conflicts])
-                flash(f'Resource conflict detected for "{resource.resource_name}" '
-                      f'with events: {conflict_titles}', 'danger')
-                conflicts_found = True
-        
-        if conflicts_found:
-            return redirect(url_for('allocate_resource'))
-        
-        # Remove existing allocations for this event
-        EventResourceAllocation.query.filter_by(event_id=event_id).delete()
-        
-        # Add new allocations
-        for resource_id in resource_ids:
-            allocation = EventResourceAllocation(
-                event_id=event_id,
-                resource_id=int(resource_id)
-            )
-            db.session.add(allocation)
-        
-        db.session.commit()
-        
-        flash(f'Resources allocated to event "{event.title}" successfully!', 'success')
-        return redirect(url_for('list_allocations'))
-    
-    events = Event.query.order_by(Event.start_time.desc()).all()
-    resources = Resource.query.order_by(Resource.resource_name).all()
-    return render_template('allocations/allocate.html', events=events, resources=resources)
-
-
-@app.route('/allocations')
+@app.route('/resources/detail/<int:resource_id>')
 @login_required
-def list_allocations():
-    """List all resource allocations"""
-    allocations = EventResourceAllocation.query.order_by(
-        EventResourceAllocation.allocated_at.desc()
-    ).all()
-    return render_template('allocations/list.html', allocations=allocations)
-
-
-@app.route('/allocations/delete/<int:allocation_id>', methods=['POST'])
-@organiser_or_admin_required
-def delete_allocation(allocation_id):
-    """Delete an allocation"""
-    allocation = EventResourceAllocation.query.get_or_404(allocation_id)
+def resource_detail(resource_id):
+    """View resource details including timeline and history"""
+    resource = Resource.query.get_or_404(resource_id)
     
-    db.session.delete(allocation)
-    db.session.commit()
+    # Get all allocations for this resource (past and future)
+    allocations = EventResourceAllocation.query.filter_by(
+        resource_id=resource_id
+    ).order_by(EventResourceAllocation.allocated_at.desc()).all()
     
-    flash('Allocation removed successfully!', 'success')
-    return redirect(url_for('list_allocations'))
+    # Separate into upcoming and past allocations
+    now = datetime.now()
+    upcoming_allocations = []
+    past_allocations = []
+    
+    for alloc in allocations:
+        if alloc.event.end_time >= now:
+            upcoming_allocations.append(alloc)
+        else:
+            past_allocations.append(alloc)
+    
+    # Sort upcoming by start_time
+    upcoming_allocations.sort(key=lambda x: x.event.start_time)
+    # Past allocations by end_time descending
+    past_allocations.sort(key=lambda x: x.event.end_time, reverse=True)
+    
+    return render_template('resources/detail.html', 
+                         resource=resource,
+                         upcoming_allocations=upcoming_allocations,
+                         past_allocations=past_allocations,
+                         now=now)
 
 
 # ==================== REPORT ROUTES ====================

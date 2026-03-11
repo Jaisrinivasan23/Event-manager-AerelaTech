@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ resource.resource_name }} - Resource Details{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{{ url_for('list_resources') }}" class="inline-flex items-center text-primary hover:underline">
+    <i class="bi bi-arrow-left mr-1"></i> Back to Resources
+  </a>
+</div>
+
+<div class="bg-white rounded-lg shadow mb-6">
+  <div class="px-6 py-4 bg-primary text-white rounded-t-lg">
+    <h2 class="text-2xl font-semibold mb-0">
+      <i class="bi bi-box"></i> {{ resource.resource_name }}
+    </h2>
+  </div>
+  
+  <div class="px-6 py-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-gray-50 rounded p-4">
+        <p class="text-sm text-gray-600 mb-1">Type</p>
+        <p class="font-semibold text-lg">{{ resource.resource_type }}</p>
+      </div>
+      
+      <div class="bg-gray-50 rounded p-4">
+        <p class="text-sm text-gray-600 mb-1">Category</p>
+        <p class="font-semibold text-lg">
+          <span class="inline-flex items-center px-3 py-1 rounded bg-primary/10 text-primary">
+            {{ resource.category or 'N/A' }}
+          </span>
+        </p>
+      </div>
+      
+      <div class="bg-gray-50 rounded p-4">
+        <p class="text-sm text-gray-600 mb-1">Total Allocations</p>
+        <p class="font-semibold text-lg">{{ resource.allocations|length }}</p>
+      </div>
+    </div>
+    
+    <!-- Resource Specifications -->
+    <div class="border-t pt-4 mb-6">
+      <h4 class="font-semibold text-gray-800 mb-3">
+        <i class="bi bi-info-circle"></i> Specifications
+      </h4>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {% if resource.capacity %}
+        <div class="flex items-center gap-2 text-sm">
+          <i class="bi bi-people text-primary"></i>
+          <span class="text-gray-600">Capacity:</span>
+          <span class="font-medium">{{ resource.capacity }} people</span>
+        </div>
+        {% endif %}
+        
+        {% if resource.quantity %}
+        <div class="flex items-center gap-2 text-sm">
+          <i class="bi bi-box text-primary"></i>
+          <span class="text-gray-600">Units:</span>
+          <span class="font-medium">{{ resource.quantity }} units</span>
+        </div>
+        {% endif %}
+        
+        {% if resource.max_hours_per_day %}
+        <div class="flex items-center gap-2 text-sm">
+          <i class="bi bi-clock text-primary"></i>
+          <span class="text-gray-600">Max Hours/Day:</span>
+          <span class="font-medium">{{ resource.max_hours_per_day }}h</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upcoming Allocations (Not Available Timeline) -->
+<div class="bg-white rounded-lg shadow mb-6">
+  <div class="px-6 py-4 bg-red-500 text-white rounded-t-lg">
+    <h3 class="text-xl font-semibold mb-0">
+      <i class="bi bi-calendar-x"></i> Not Available Timeline (Upcoming)
+    </h3>
+  </div>
+  
+  <div class="px-6 py-6">
+    {% if upcoming_allocations %}
+    <div class="space-y-3">
+      {% for alloc in upcoming_allocations %}
+      <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <h5 class="font-semibold text-gray-800 flex items-center gap-2">
+              <i class="bi bi-calendar-event"></i>
+              <a href="{{ url_for('list_events') }}" class="hover:text-primary">{{ alloc.event.title }}</a>
+            </h5>
+            <div class="text-sm text-gray-600 mt-2 space-y-1">
+              <div class="flex items-center gap-2">
+                <i class="bi bi-clock"></i>
+                <span><strong>Start:</strong> {{ alloc.event.start_time.strftime('%d %b %Y, %I:%M %p') }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <i class="bi bi-clock-fill"></i>
+                <span><strong>End:</strong> {{ alloc.event.end_time.strftime('%d %b %Y, %I:%M %p') }}</span>
+              </div>
+              {% if alloc.reserved_quantity > 1 %}
+              <div class="flex items-center gap-2">
+                <i class="bi bi-box"></i>
+                <span><strong>Reserved:</strong> {{ alloc.reserved_quantity }} units</span>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="ml-4">
+            {% if alloc.event.start_time <= now and alloc.event.end_time >= now %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
+              <i class="bi bi-record-circle-fill mr-1"></i> IN USE NOW
+            </span>
+            {% else %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-500 text-white">
+              <i class="bi bi-calendar-check mr-1"></i> UPCOMING
+            </span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-8 text-gray-500">
+      <i class="bi bi-check-circle text-4xl mb-2 text-green-500"></i>
+      <p class="text-lg">No upcoming allocations - Resource is currently available!</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Usage History -->
+<div class="bg-white rounded-lg shadow">
+  <div class="px-6 py-4 bg-gray-700 text-white rounded-t-lg">
+    <h3 class="text-xl font-semibold mb-0">
+      <i class="bi bi-clock-history"></i> Usage History (Past)
+    </h3>
+  </div>
+  
+  <div class="px-6 py-6">
+    {% if past_allocations %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full">
+        <thead class="bg-gray-100 text-left text-sm">
+          <tr>
+            <th class="px-4 py-3">Event</th>
+            <th class="px-4 py-3">Start Time</th>
+            <th class="px-4 py-3">End Time</th>
+            <th class="px-4 py-3">Duration</th>
+            <th class="px-4 py-3">Quantity</th>
+            <th class="px-4 py-3">Allocated On</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 text-sm">
+          {% for alloc in past_allocations %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 font-medium">
+              <a href="{{ url_for('list_events') }}" class="text-primary hover:underline">
+                {{ alloc.event.title }}
+              </a>
+            </td>
+            <td class="px-4 py-3">{{ alloc.event.start_time.strftime('%d %b %Y, %I:%M %p') }}</td>
+            <td class="px-4 py-3">{{ alloc.event.end_time.strftime('%d %b %Y, %I:%M %p') }}</td>
+            <td class="px-4 py-3">
+              {% set duration = (alloc.event.end_time - alloc.event.start_time).total_seconds() / 3600 %}
+              {{ "%.1f"|format(duration) }}h
+            </td>
+            <td class="px-4 py-3">
+              {% if alloc.reserved_quantity > 1 %}
+                {{ alloc.reserved_quantity }} units
+              {% else %}
+                1 unit
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-gray-600">{{ alloc.allocated_at.strftime('%d %b %Y') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-8 text-gray-500">
+      <i class="bi bi-inbox text-4xl mb-2"></i>
+      <p class="text-lg">No usage history yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="mt-6 flex items-center gap-3">
+  <a href="{{ url_for('list_resources') }}" class="inline-flex items-center px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700">
+    <i class="bi bi-arrow-left mr-2"></i> Back to Resources
+  </a>
+  
+  {% if current_user.role in ['admin', 'organiser'] %}
+  <a href="{{ url_for('edit_resource', resource_id=resource.resource_id) }}" class="inline-flex items-center px-4 py-2 rounded bg-yellow-500 hover:bg-yellow-600 text-white">
+    <i class="bi bi-pencil mr-2"></i> Edit Resource
+  </a>
+  {% endif %}
+</div>
+{% endblock %}
