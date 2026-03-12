@@ -1,9 +1,11 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from functools import wraps
 from config import Config
 from models import db, Event, Resource, EventResourceAllocation, User
 from datetime import datetime, timedelta
+import csv
+from io import StringIO
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -366,37 +368,10 @@ def add_event():
             flash(f'Event "{title}" created successfully!', 'success')
         return redirect(url_for('list_events'))
     
-    # GET request - show form with available resources
-    # Get time range from query params if provided (for filtering)
-    start_time_str = request.args.get('start_time')
-    end_time_str = request.args.get('end_time')
-    
+    # GET request - show form with all resources (filtering is done by JavaScript)
     all_resources = Resource.query.order_by(Resource.category, Resource.resource_name).all()
     
-    # Filter out resources that are already allocated/conflicting if time is specified
-    if start_time_str and end_time_str:
-        try:
-            start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
-            end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M')
-            
-            available_resources = []
-            for resource in all_resources:
-                conflicts = check_resource_conflict(
-                    resource.resource_id,
-                    start_time,
-                    end_time,
-                    requested_quantity=1  # Check if at least 1 unit is available
-                )
-                if not conflicts:  # No conflicts, resource is available
-                    available_resources.append(resource)
-            
-            resources = available_resources
-        except ValueError:
-            resources = all_resources
-    else:
-        resources = all_resources
-    
-    return render_template('events/add.html', resources=resources, start_time=start_time_str, end_time=end_time_str)
+    return render_template('events/add.html', resources=all_resources)
 
 
 @app.route('/events/edit/<int:event_id>', methods=['GET', 'POST'])
@@ -692,10 +667,12 @@ def resource_detail(resource_id):
 @app.route('/report', methods=['GET', 'POST'])
 @login_required
 def resource_report():
-    """Generate resource utilization report"""
+    """Generate resource utilization report with dashboard"""
     report_data = None
+    events_data = None
     start_date = None
     end_date = None
+    stats = None
     
     if request.method == 'POST':
         start_date_str = request.form.get('start_date')
@@ -718,13 +695,25 @@ def resource_report():
             flash('Start date must be before end date!', 'danger')
             return redirect(url_for('resource_report'))
         
+        # Get all events in the date range
+        events_in_range = Event.query.filter(
+            Event.start_time <= end_date,
+            Event.end_time >= start_date
+        ).order_by(Event.start_time).all()
+        
         # Generate report
         resources = Resource.query.all()
         report_data = []
         now = datetime.now()
         
+        # Category statistics
+        category_stats = {'Venue': 0, 'Equipment': 0, 'Person': 0, 'Other': 0}
+        total_events = len(events_in_range)
+        total_allocations = 0
+        
         for resource in resources:
             total_hours = 0
+            event_count = 0
             upcoming_bookings = []
             
             for allocation in resource.allocations:
@@ -740,21 +729,137 @@ def resource_report():
                         delta = overlap_end - overlap_start
                         hours = delta.total_seconds() / 3600
                         total_hours += hours
+                        event_count += 1
+                        total_allocations += 1
                 
                 # Check for upcoming bookings
                 if event.start_time > now:
                     upcoming_bookings.append(event)
             
-            report_data.append({
-                'resource': resource,
-                'total_hours': round(total_hours, 2),
-                'upcoming_bookings': sorted(upcoming_bookings, key=lambda e: e.start_time)
+            # Update category stats
+            cat = resource.category if resource.category in category_stats else 'Other'
+            category_stats[cat] += total_hours
+            
+            if total_hours > 0 or upcoming_bookings:
+                report_data.append({
+                    'resource': resource,
+                    'total_hours': round(total_hours, 2),
+                    'event_count': event_count,
+                    'upcoming_bookings': sorted(upcoming_bookings, key=lambda e: e.start_time)
+                })
+        
+        # Prepare events data for table
+        events_data = []
+        for event in events_in_range:
+            allocated_resources = [alloc.resource.resource_name for alloc in event.allocations]
+            events_data.append({
+                'event': event,
+                'duration': round((event.end_time - event.start_time).total_seconds() / 3600, 2),
+                'resources': allocated_resources,
+                'resource_count': len(allocated_resources)
             })
+        
+        # Calculate statistics
+        stats = {
+            'total_resources': len(report_data),
+            'total_hours': round(sum(r['total_hours'] for r in report_data), 2),
+            'total_events': total_events,
+            'total_allocations': total_allocations,
+            'category_stats': category_stats,
+            'avg_event_duration': round(sum(e['duration'] for e in events_data) / len(events_data), 2) if events_data else 0
+        }
     
     return render_template('reports/report.html', 
-                         report_data=report_data, 
+                         report_data=report_data,
+                         events_data=events_data,
                          start_date=start_date, 
-                         end_date=end_date)
+                         end_date=end_date,
+                         stats=stats)
+
+
+@app.route('/report/download-csv', methods=['POST'])
+@login_required
+def download_report_csv():
+    """Download report as CSV"""
+    start_date_str = request.form.get('start_date')
+    end_date_str = request.form.get('end_date')
+    report_type = request.form.get('report_type', 'resources')  # 'resources' or 'events'
+    
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        end_date = end_date.replace(hour=23, minute=59, second=59)
+    except (ValueError, TypeError):
+        flash('Invalid date format!', 'danger')
+        return redirect(url_for('resource_report'))
+    
+    # Create CSV in memory
+    output = StringIO()
+    
+    if report_type == 'resources':
+        writer = csv.writer(output)
+        writer.writerow(['Resource Name', 'Type', 'Category', 'Total Hours Used', 'Event Count', 'Capacity/Quantity', 'Max Hours/Day'])
+        
+        resources = Resource.query.all()
+        for resource in resources:
+            total_hours = 0
+            event_count = 0
+            
+            for allocation in resource.allocations:
+                event = allocation.event
+                if event.start_time <= end_date and event.end_time >= start_date:
+                    overlap_start = max(event.start_time, start_date)
+                    overlap_end = min(event.end_time, end_date)
+                    
+                    if overlap_start < overlap_end:
+                        delta = overlap_end - overlap_start
+                        hours = delta.total_seconds() / 3600
+                        total_hours += hours
+                        event_count += 1
+            
+            if total_hours > 0:
+                capacity_qty = resource.capacity if resource.capacity else (resource.quantity if resource.quantity else '-')
+                writer.writerow([
+                    resource.resource_name,
+                    resource.resource_type,
+                    resource.category or '-',
+                    round(total_hours, 2),
+                    event_count,
+                    capacity_qty,
+                    resource.max_hours_per_day or '-'
+                ])
+    
+    else:  # events
+        writer = csv.writer(output)
+        writer.writerow(['Event Title', 'Start Time', 'End Time', 'Duration (hours)', 'Expected Attendees', 'Allocated Resources', 'Created By'])
+        
+        events = Event.query.filter(
+            Event.start_time <= end_date,
+            Event.end_time >= start_date
+        ).order_by(Event.start_time).all()
+        
+        for event in events:
+            resources = ', '.join([alloc.resource.resource_name for alloc in event.allocations])
+            duration = round((event.end_time - event.start_time).total_seconds() / 3600, 2)
+            created_by = event.creator.username if event.creator else '-'
+            
+            writer.writerow([
+                event.title,
+                event.start_time.strftime('%Y-%m-%d %H:%M'),
+                event.end_time.strftime('%Y-%m-%d %H:%M'),
+                duration,
+                event.expected_attendees or '-',
+                resources or '-',
+                created_by
+            ])
+    
+    # Create response
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    filename = f'{report_type}_report_{start_date_str}_to_{end_date_str}.csv'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    
+    return response
 
 
 # ==================== REST API ENDPOINTS ====================
@@ -960,6 +1065,58 @@ def api_check_conflicts():
         'has_conflicts': len(all_conflicts) > 0,
         'conflict_count': len(all_conflicts),
         'conflicts': all_conflicts
+    }), 200
+
+
+@app.route('/api/available-resources', methods=['GET'])
+@login_required
+def api_available_resources():
+    """REST API endpoint to get available resources for a given time period"""
+    start_time_str = request.args.get('start_time')
+    end_time_str = request.args.get('end_time')
+    exclude_event_id = request.args.get('exclude_event_id', type=int)
+    
+    if not start_time_str or not end_time_str:
+        return jsonify({'error': 'start_time and end_time parameters are required'}), 400
+    
+    try:
+        start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
+        end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M')
+    except ValueError:
+        return jsonify({'error': 'Invalid datetime format. Use YYYY-MM-DDTHH:MM'}), 400
+    
+    if start_time >= end_time:
+        return jsonify({'error': 'start_time must be before end_time'}), 400
+    
+    all_resources = Resource.query.order_by(Resource.category, Resource.resource_name).all()
+    available_resources = []
+    
+    for resource in all_resources:
+        conflicts = check_resource_conflict(
+            resource.resource_id,
+            start_time,
+            end_time,
+            exclude_event_id=exclude_event_id,
+            requested_quantity=1  # Check if at least 1 unit is available
+        )
+        
+        if not conflicts:  # No conflicts, resource is available
+            available_resources.append({
+                'resource_id': resource.resource_id,
+                'resource_name': resource.resource_name,
+                'category': resource.category,
+                'capacity': resource.capacity,
+                'quantity': resource.quantity,
+                'max_hours_per_day': resource.max_hours_per_day
+            })
+    
+    return jsonify({
+        'success': True,
+        'start_time': start_time_str,
+        'end_time': end_time_str,
+        'total_resources': len(all_resources),
+        'available_count': len(available_resources),
+        'resources': available_resources
     }), 200
 
 

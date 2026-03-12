@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 
-{% block title %}Resource Utilization Report - Event Scheduler{% endblock %}
+{% block title %}Dashboard & Reports - Event Scheduler{% endblock %}
 
 {% block content %}
-<h2 class="text-2xl font-semibold mb-4"><i class="bi bi-graph-up"></i> Resource Utilization Report</h2>
+<h2 class="text-2xl font-semibold mb-4"><i class="bi bi-graph-up"></i> Dashboard & Reports</h2>
 
 <div class="bg-white rounded-lg shadow mb-6">
   <div class="px-6 py-4 bg-primary text-white rounded-t-lg">
-    <h5 class="mb-0">Select Date Range</h5>
+    <h5 class="mb-0"><i class="bi bi-calendar-range"></i> Select Date Range</h5>
   </div>
   <div class="px-6 py-6">
     <form method="POST" action="{{ url_for('resource_report') }}">
@@ -21,89 +21,345 @@
           <input type="date" id="end_date" name="end_date" value="{{ end_date.strftime('%Y-%m-%d') if end_date else '' }}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-primary focus:border-primary p-2" />
         </div>
         <div class="md:col-span-2">
-          <button type="submit" class="w-full inline-flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-md shadow hover:bg-primary/90"><i class="bi bi-search"></i> Generate</button>
+          <button type="submit" class="w-full inline-flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-md shadow hover:bg-primary/90">
+            <i class="bi bi-graph-up"></i> Generate
+          </button>
         </div>
       </div>
     </form>
   </div>
 </div>
 
-{% if report_data %}
-  <div class="bg-white rounded-lg shadow">
-    <div class="px-6 py-4 bg-green-600 text-white rounded-t-lg">
-      <h5 class="mb-0">Report for {{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</h5>
-    </div>
-    <div class="px-6 py-6">
-      {% if report_data %}
-        <div class="overflow-x-auto">
-          <table class="min-w-full bg-white rounded-lg overflow-hidden">
-            <thead class="bg-gray-800 text-white text-left text-sm font-medium uppercase tracking-wider">
-              <tr>
-                <th class="px-4 py-3">Resource Name</th>
-                <th class="px-4 py-3">Type</th>
-                <th class="px-4 py-3">Category</th>
-                <th class="px-4 py-3">Total Hours Used</th>
-                <th class="px-4 py-3">Upcoming Bookings</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100 text-sm">
-              {% for item in report_data %}
-              <tr class="hover:bg-gray-50">
-                <td class="px-4 py-3 font-semibold">{{ item.resource.resource_name }}</td>
-                <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">{{ item.resource.resource_type }}</span></td>
-                <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-50 text-gray-800 text-xs">{{ item.resource.category or '—' }}</span></td>
-                <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded bg-primary text-white text-xs">{{ item.total_hours }} hours</span></td>
-                <td class="px-4 py-3">
-                  {% if item.upcoming_bookings %}
-                    <ul class="list-none pl-0 mb-0">
-                      {% for booking in item.upcoming_bookings %}
-                      <li class="mb-2">
-                        <div class="flex items-start gap-2">
-                          <i class="bi bi-calendar-event text-green-600"></i>
-                          <div>
-                            <div class="font-medium">{{ booking.title }}</div>
-                            <div class="text-xs text-gray-500">{{ booking.start_time.strftime('%Y-%m-%d %H:%M') }} - {{ booking.end_time.strftime('%H:%M') }}</div>
-                          </div>
-                        </div>
-                      </li>
-                      {% endfor %}
-                    </ul>
-                  {% else %}
-                    <div class="text-gray-500">No upcoming bookings</div>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="mt-6">
-          <h5 class="mb-3">Summary Statistics</h5>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-gray-50 rounded p-4 text-center">
-              <h3 class="text-2xl font-semibold">{{ report_data|length }}</h3>
-              <p class="mb-0 text-sm">Total Resources</p>
-            </div>
-            <div class="bg-gray-50 rounded p-4 text-center">
-              <h3 class="text-2xl font-semibold">{{ report_data|sum(attribute='total_hours')|round(2) }}</h3>
-              <p class="mb-0 text-sm">Total Hours Used</p>
-            </div>
-            <div class="bg-gray-50 rounded p-4 text-center">
-              <h3 class="text-2xl font-semibold">{{ report_data|map(attribute='upcoming_bookings')|map('length')|sum }}</h3>
-              <p class="mb-0 text-sm">Upcoming Bookings</p>
-            </div>
-          </div>
-        </div>
-      {% else %}
-        <div class="border-l-4 p-4 mb-3 bg-accent/10 border-accent/40 text-accent">
-          <div class="flex items-center gap-2">
-            <i class="bi bi-info-circle"></i> No data found for the selected date range.
-          </div>
-        </div>
-      {% endif %}
+{% if stats %}
+<!-- Dashboard Statistics -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg shadow p-4 md:p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-blue-100 text-xs md:text-sm">Total Events</p>
+        <h3 class="text-2xl md:text-3xl font-bold">{{ stats.total_events }}</h3>
+      </div>
+      <i class="bi bi-calendar-event text-3xl md:text-5xl text-blue-200"></i>
     </div>
   </div>
+  
+  <div class="bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg shadow p-4 md:p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-green-100 text-xs md:text-sm">Resources Used</p>
+        <h3 class="text-2xl md:text-3xl font-bold">{{ stats.total_resources }}</h3>
+      </div>
+      <i class="bi bi-box text-3xl md:text-5xl text-green-200"></i>
+    </div>
+  </div>
+  
+  <div class="bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg shadow p-4 md:p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-purple-100 text-xs md:text-sm">Total Hours</p>
+        <h3 class="text-2xl md:text-3xl font-bold">{{ stats.total_hours }}</h3>
+      </div>
+      <i class="bi bi-clock text-3xl md:text-5xl text-purple-200"></i>
+    </div>
+  </div>
+  
+  <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg shadow p-4 md:p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-orange-100 text-xs md:text-sm">Allocations</p>
+        <h3 class="text-2xl md:text-3xl font-bold">{{ stats.total_allocations }}</h3>
+      </div>
+      <i class="bi bi-link-45deg text-3xl md:text-5xl text-orange-200"></i>
+    </div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+  <!-- Category Distribution Chart -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h5 class="text-lg font-semibold mb-4 flex items-center gap-2">
+      <i class="bi bi-pie-chart"></i> Resource Usage by Category
+    </h5>
+    <div style="position: relative; height: 300px;">
+      <canvas id="categoryChart"></canvas>
+    </div>
+  </div>
+  
+  <!-- Top Resources Chart -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h5 class="text-lg font-semibold mb-4 flex items-center gap-2">
+      <i class="bi bi-bar-chart"></i> Top 5 Most Used Resources
+    </h5>
+    <div style="position: relative; height: 300px;">
+      <canvas id="topResourcesChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Resource Utilization Table -->
+<div class="bg-white rounded-lg shadow mb-6">
+  <div class="px-4 md:px-6 py-4 bg-green-600 text-white rounded-t-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+    <h5 class="mb-0 text-sm md:text-base">
+      <i class="bi bi-table"></i> Resource Utilization Report
+      <span class="text-xs md:text-sm ml-2 block md:inline mt-1 md:mt-0">({{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }})</span>
+    </h5>
+    <form method="POST" action="{{ url_for('download_report_csv') }}" class="inline">
+      <input type="hidden" name="start_date" value="{{ start_date.strftime('%Y-%m-%d') }}">
+      <input type="hidden" name="end_date" value="{{ end_date.strftime('%Y-%m-%d') }}">
+      <input type="hidden" name="report_type" value="resources">
+      <button type="submit" class="px-3 py-1 bg-white text-green-600 rounded hover:bg-gray-100 text-xs md:text-sm flex items-center gap-2 whitespace-nowrap">
+        <i class="bi bi-download"></i> Download CSV
+      </button>
+    </form>
+  </div>
+  <div class="px-4 md:px-6 py-6">
+    {% if report_data %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full bg-white overflow-hidden">
+        <thead class="bg-gray-800 text-white text-left text-xs md:text-sm font-medium uppercase tracking-wider">
+          <tr>
+            <th class="px-2 md:px-4 py-2 md:py-3">Resource Name</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden sm:table-cell">Type</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden md:table-cell">Category</th>
+            <th class="px-2 md:px-4 py-2 md:py-3">Hours</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">Events</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">Upcoming</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 text-xs md:text-sm">
+          {% for item in report_data %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-2 md:px-4 py-2 md:py-3">
+              <a href="{{ url_for('resource_detail', resource_id=item.resource.resource_id) }}" class="font-semibold text-primary hover:underline">
+                {{ item.resource.resource_name }}
+              </a>
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden sm:table-cell">
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
+                {{ item.resource.resource_type }}
+              </span>
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden md:table-cell">
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-50 text-gray-800 text-xs">
+                {{ item.resource.category or '—' }}
+              </span>
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3">
+              <span class="inline-flex items-center px-2 py-1 rounded-full bg-primary text-white text-xs font-medium">
+                {{ item.total_hours }}h
+              </span>
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">
+              <span class="text-gray-600">{{ item.event_count }} events</span>
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">
+              {% if item.upcoming_bookings %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded bg-orange-100 text-orange-800 text-xs font-medium">
+                  {{ item.upcoming_bookings|length }} upcoming
+                </span>
+              {% else %}
+                <span class="text-gray-400">None</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-8 text-gray-500">
+      <i class="bi bi-inbox text-4xl mb-2"></i>
+      <p>No resource usage data for the selected period.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Events Table -->
+<div class="bg-white rounded-lg shadow">
+  <div class="px-4 md:px-6 py-4 bg-blue-600 text-white rounded-t-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+    <h5 class="mb-0 text-sm md:text-base">
+      <i class="bi bi-calendar3"></i> Events List
+      <span class="text-xs md:text-sm ml-2 block md:inline mt-1 md:mt-0">({{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }})</span>
+    </h5>
+    <form method="POST" action="{{ url_for('download_report_csv') }}" class="inline">
+      <input type="hidden" name="start_date" value="{{ start_date.strftime('%Y-%m-%d') }}">
+      <input type="hidden" name="end_date" value="{{ end_date.strftime('%Y-%m-%d') }}">
+      <input type="hidden" name="report_type" value="events">
+      <button type="submit" class="px-3 py-1 bg-white text-blue-600 rounded hover:bg-gray-100 text-xs md:text-sm flex items-center gap-2 whitespace-nowrap">
+        <i class="bi bi-download"></i> Download CSV
+      </button>
+    </form>
+  </div>
+  <div class="px-4 md:px-6 py-6">
+    {% if events_data %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full bg-white overflow-hidden">
+        <thead class="bg-gray-800 text-white text-left text-xs md:text-sm font-medium uppercase tracking-wider">
+          <tr>
+            <th class="px-2 md:px-4 py-2 md:py-3">Event Title</th>
+            <th class="px-2 md:px-4 py-2 md:py-3">Start Time</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden md:table-cell">End Time</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden sm:table-cell">Duration</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">Resources</th>
+            <th class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">Attendees</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 text-xs md:text-sm">
+          {% for item in events_data %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-2 md:px-4 py-2 md:py-3 font-semibold">{{ item.event.title }}</td>
+            <td class="px-2 md:px-4 py-2 md:py-3 text-xs">{{ item.event.start_time.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="px-2 md:px-4 py-2 md:py-3 text-xs hidden md:table-cell">{{ item.event.end_time.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden sm:table-cell">
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs font-medium">
+                {{ item.duration }}h
+              </span>
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">
+              {% if item.resources %}
+                <div class="flex flex-wrap gap-1">
+                  {% for resource_name in item.resources[:3] %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">
+                      {{ resource_name }}
+                    </span>
+                  {% endfor %}
+                  {% if item.resources|length > 3 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-200 text-gray-600 text-xs">
+                      +{{ item.resources|length - 3 }} more
+                    </span>
+                  {% endif %}
+                </div>
+              {% else %}
+                <span class="text-gray-400">None</span>
+              {% endif %}
+            </td>
+            <td class="px-2 md:px-4 py-2 md:py-3 hidden lg:table-cell">
+              <span class="text-gray-600">{{ item.event.expected_attendees or '—' }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-8 text-gray-500">
+      <i class="bi bi-inbox text-4xl mb-2"></i>
+      <p>No events found for the selected period.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+<div class="bg-white rounded-lg shadow p-12 text-center">
+  <i class="bi bi-bar-chart text-6xl text-gray-300 mb-4"></i>
+  <h3 class="text-xl font-semibold text-gray-600 mb-2">No Report Generated</h3>
+  <p class="text-gray-500">Select a date range above and click "Generate" to view dashboard and reports.</p>
+</div>
+{% endif %}
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+{% if stats %}
+<script>
+// Category Distribution Pie Chart
+const categoryCtx = document.getElementById('categoryChart');
+const categoryData = {
+  labels: ['Venues', 'Equipment', 'Instructors/Staff', 'Other'],
+  datasets: [{
+    data: [
+      {{ stats.category_stats.Venue }},
+      {{ stats.category_stats.Equipment }},
+      {{ stats.category_stats.Person }},
+      {{ stats.category_stats.Other }}
+    ],
+    backgroundColor: [
+      'rgba(59, 130, 246, 0.8)',
+      'rgba(16, 185, 129, 0.8)',
+      'rgba(168, 85, 247, 0.8)',
+      'rgba(249, 115, 22, 0.8)'
+    ],
+    borderColor: [
+      'rgb(59, 130, 246)',
+      'rgb(16, 185, 129)',
+      'rgb(168, 85, 247)',
+      'rgb(249, 115, 22)'
+    ],
+    borderWidth: 1
+  }]
+};
+
+new Chart(categoryCtx, {
+  type: 'doughnut',
+  data: categoryData,
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return context.label + ': ' + context.parsed.toFixed(2) + ' hours';
+          }
+        }
+      }
+    }
+  }
+});
+
+// Top Resources Bar Chart
+const topResourcesCtx = document.getElementById('topResourcesChart');
+
+const topResourcesData = {
+  labels: [
+    {% for item in report_data|sort(attribute='total_hours', reverse=true) %}{% if loop.index <= 5 %}'{{ item.resource.resource_name }}'{% if loop.index < 5 and not loop.last %}, {% endif %}{% endif %}{% endfor %}
+  ],
+  datasets: [{
+    label: 'Hours Used',
+    data: [{% for item in report_data|sort(attribute='total_hours', reverse=true) %}{% if loop.index <= 5 %}{{ item.total_hours }}{% if loop.index < 5 and not loop.last %}, {% endif %}{% endif %}{% endfor %}],
+    backgroundColor: 'rgba(99, 102, 241, 0.8)',
+    borderColor: 'rgb(99, 102, 241)',
+    borderWidth: 1
+  }]
+};
+
+new Chart(topResourcesCtx, {
+  type: 'bar',
+  data: topResourcesData,
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'Hours'
+        }
+      },
+      x: {
+        ticks: {
+          maxRotation: 45,
+          minRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 5
+        }
+      }
+    }
+  }
+});
+</script>
 {% endif %}
 
 {% endblock %}
