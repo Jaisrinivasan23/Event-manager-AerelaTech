@@ -46,3 +46,25 @@ instance/
 # Environment
 .env
 .env.local
+.env.production
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Docker
+*.pid
+
+# Backups
+backup*.sql
+backup*.sql.gz
+
+# Screenshots (keep in repo if needed, otherwise uncomment)
+# Demo/
+# static/img/screenshots/

@@ -1,6 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response, session
 from config import Config
 from models import db, Event, Resource, EventResourceAllocation, User
 from datetime import datetime, timedelta
@@ -13,66 +11,56 @@ app.config.from_object(Config)
 # Initialize database
 db.init_app(app)
 
-# Initialize Flask-Login
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-login_manager.login_message = 'Please log in to access this page.'
-login_manager.login_message_category = 'info'
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
-# Try to initialize migrations if Flask-Migrate is installed; otherwise continue without it
+# Try to initialize migrations if available
 try:
     from flask_migrate import Migrate
     migrate = Migrate(app, db)
 except Exception:
-    migrate = None
-    app.logger = app.logger or None
-    # Use print if logger not yet configured
-    try:
-        app.logger.warning("Flask-Migrate is not installed; migrations disabled. Install it with 'pip install Flask-Migrate' to enable migrations.")
-    except Exception:
-        print("Flask-Migrate is not installed; migrations disabled. Install it with 'pip install Flask-Migrate' to enable migrations.")
+    pass
 
 
-# ==================== ROLE-BASED ACCESS CONTROL DECORATORS ====================
+# ==================== SIMPLE AUTH HELPERS ====================
 
-def role_required(*roles):
-    """Decorator to require specific roles for a route"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if not current_user.is_authenticated:
-                flash('Please log in to access this page.', 'warning')
-                return redirect(url_for('login'))
-            if current_user.role not in roles:
-                flash('You do not have permission to access this page.', 'danger')
-                return redirect(url_for('index'))
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+def get_current_user():
+    """Get current logged in user from session"""
+    if 'user_id' in session:
+        return User.query.get(session['user_id'])
+    return None
 
 
-def admin_required(f):
-    """Decorator to require admin role"""
-    return role_required('admin')(f)
+def is_logged_in():
+    """Check if user is logged in"""
+    return 'user_id' in session
 
 
-def organiser_or_admin_required(f):
-    """Decorator to require organiser or admin role"""
-    return role_required('admin', 'organiser')(f)
+def require_login():
+    """Require user to be logged in"""
+    if not is_logged_in():
+        flash('Please log in to access this page.', 'warning')
+        return redirect(url_for('login'))
+    return None
 
 
-# ==================== AUTHENTICATION ROUTES ====================
+def require_role(*roles):
+    """Require user to have specific role"""
+    if not is_logged_in():
+        flash('Please log in to access this page.', 'warning')
+        return redirect(url_for('login'))
+    
+    user = get_current_user()
+    if user.role not in roles:
+        flash('You do not have permission to access this page.', 'danger')
+        return redirect(url_for('list_events'))
+    return None
+
+
+# ==================== AUTH ROUTES ====================
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """User login"""
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
+    if is_logged_in():
+        return redirect(url_for('list_events'))
     
     if request.method == 'POST':
         username = request.form.get('username')
@@ -85,10 +73,11 @@ def login():
         user = User.query.filter_by(username=username).first()
         
         if user and user.check_password(password) and user.is_active:
-            login_user(user)
+            session['user_id'] = user.user_id
+            session['username'] = user.username
+            session['role'] = user.role
             flash(f'Welcome back, {user.username}!', 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page) if next_page else redirect(url_for('index'))
+            return redirect(url_for('list_events'))
         else:
             flash('Invalid username or password.', 'danger')
             return redirect(url_for('login'))
@@ -97,10 +86,9 @@ def login():
 
 
 @app.route('/logout')
-@login_required
 def logout():
     """User logout"""
-    logout_user()
+    session.clear()
     flash('You have been logged out successfully.', 'success')
     return redirect(url_for('login'))
 
@@ -108,8 +96,8 @@ def logout():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """User registration"""
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
+    if is_logged_in():
+        return redirect(url_for('list_events'))
     
     if request.method == 'POST':
         username = request.form.get('username')
@@ -133,7 +121,6 @@ def register():
             flash('Email already exists.', 'danger')
             return redirect(url_for('register'))
         
-        # Create new user with viewer role by default
         new_user = User(username=username, email=email, role='viewer')
         new_user.set_password(password)
         
@@ -161,7 +148,7 @@ def check_resource_conflict(resource_id, start_time, end_time, exclude_event_id=
         if exclude_event_id and event.event_id == exclude_event_id:
             continue
         
-        # Check for time overlap: event1.start < event2.end AND event2.start < event1.end
+        # Check for time overlap
         if start_time < event.end_time and event.start_time < end_time:
             conflicts.append({
                 'event': event,
@@ -172,15 +159,14 @@ def check_resource_conflict(resource_id, start_time, end_time, exclude_event_id=
     
     # For equipment, check if total quantity exceeds available
     if resource and resource.category == 'Equipment' and conflicts:
-        # If no quantity is set, treat as unlimited or return conflict
         if resource.quantity is None or resource.quantity == 0:
-            return conflicts  # No quantity tracking, treat as traditional conflict
+            return conflicts
         
         total_allocated = sum(c['allocation'].reserved_quantity for c in conflicts)
         if total_allocated + requested_quantity > resource.quantity:
             return conflicts
         else:
-            return []  # Quantity available, no conflict
+            return []
     
     return conflicts
 
@@ -200,10 +186,6 @@ def check_instructor_hours(resource_id, start_time, end_time, exclude_event_id=N
     if resource.category != 'Person' or not resource.max_hours_per_day:
         return True, None
     
-    # Get all events for this instructor on the same day
-    day_start = start_time.replace(hour=0, minute=0, second=0)
-    day_end = start_time.replace(hour=23, minute=59, second=59)
-    
     allocations = EventResourceAllocation.query.filter_by(resource_id=resource_id).all()
     total_hours = 0
     
@@ -212,11 +194,9 @@ def check_instructor_hours(resource_id, start_time, end_time, exclude_event_id=N
         if exclude_event_id and event.event_id == exclude_event_id:
             continue
         
-        # Check if event is on the same day
         if event.start_time.date() == start_time.date():
             total_hours += event.duration_hours()
     
-    # Add current event duration
     event_duration = (end_time - start_time).total_seconds() / 3600
     total_hours += event_duration
     
@@ -232,10 +212,10 @@ def validate_resource_allocation(resource_id, event_id, requested_quantity=1):
     event = Event.query.get(event_id)
     errors = []
     
-    # Validate requested quantity for equipment
+    # Validate quantity for equipment
     if resource.category == 'Equipment' and resource.quantity:
         if requested_quantity > resource.quantity:
-            errors.append(f"Requested quantity ({requested_quantity}) exceeds available quantity ({resource.quantity}) for {resource.resource_name}")
+            errors.append(f"Requested quantity ({requested_quantity}) exceeds available ({resource.quantity}) for {resource.resource_name}")
         elif requested_quantity < 1:
             errors.append(f"Quantity must be at least 1")
     
@@ -260,6 +240,7 @@ def validate_resource_allocation(resource_id, event_id, requested_quantity=1):
     return len(errors) == 0, errors
 
 
+# ==================== ROUTES ====================
 
 @app.route('/')
 def index():
@@ -270,31 +251,36 @@ def index():
 # ==================== EVENT ROUTES ====================
 
 @app.route('/events')
-@login_required
 def list_events():
     """List all events"""
+    redirect_response = require_login()
+    if redirect_response:
+        return redirect_response
+    
     events = Event.query.order_by(Event.start_time.desc()).all()
-    return render_template('events/list.html', events=events)
+    return render_template('events/list.html', events=events, current_user=get_current_user())
 
 
 @app.route('/events/add', methods=['GET', 'POST'])
-@organiser_or_admin_required
 def add_event():
     """Add a new event"""
+    redirect_response = require_role('admin', 'organiser')
+    if redirect_response:
+        return redirect_response
+    
     if request.method == 'POST':
         title = request.form.get('title')
         start_time_str = request.form.get('start_time')
         end_time_str = request.form.get('end_time')
         description = request.form.get('description')
         expected_attendees = request.form.get('expected_attendees', 0, type=int)
-        timezone = 'Asia/Kolkata'  # Fixed to IST
         resource_ids = request.form.getlist('resource_ids')
         
         # Validate inputs
         if not title or not start_time_str or not end_time_str:
             flash('Title, start time, and end time are required!', 'danger')
             resources = Resource.query.order_by(Resource.resource_name).all()
-            return render_template('events/add.html', resources=resources)
+            return render_template('events/add.html', resources=resources, current_user=get_current_user())
         
         try:
             start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
@@ -302,39 +288,35 @@ def add_event():
         except ValueError:
             flash('Invalid date/time format!', 'danger')
             resources = Resource.query.order_by(Resource.resource_name).all()
-            return render_template('events/add.html', resources=resources)
+            return render_template('events/add.html', resources=resources, current_user=get_current_user())
         
-        # Validate start_time < end_time
         if start_time >= end_time:
             flash('Start time must be before end time!', 'danger')
             resources = Resource.query.order_by(Resource.resource_name).all()
-            return render_template('events/add.html', resources=resources)
+            return render_template('events/add.html', resources=resources, current_user=get_current_user())
         
-        # Create new event (but don't commit yet)
+        # Create new event
         new_event = Event(
             title=title,
             start_time=start_time,
             end_time=end_time,
             description=description,
             expected_attendees=expected_attendees,
-            timezone=timezone,
-            created_by=current_user.user_id
+            timezone='Asia/Kolkata',
+            created_by=session.get('user_id')
         )
         
         db.session.add(new_event)
-        db.session.flush()  # Get event_id without committing
+        db.session.flush()
         
-        # Validate and allocate resources if selected
+        # Validate and allocate resources
         if resource_ids:
             conflicts_found = False
             for resource_id in resource_ids:
                 resource_id = int(resource_id)
-                
-                # Get quantity for equipment
                 quantity_key = f'quantity_{resource_id}'
                 requested_qty = request.form.get(quantity_key, 1, type=int)
                 
-                # Validate allocation
                 valid, errors = validate_resource_allocation(resource_id, new_event.event_id, requested_qty)
                 
                 if not valid:
@@ -345,9 +327,9 @@ def add_event():
             if conflicts_found:
                 db.session.rollback()
                 resources = Resource.query.order_by(Resource.resource_name).all()
-                return render_template('events/add.html', resources=resources)
+                return render_template('events/add.html', resources=resources, current_user=get_current_user())
             
-            # All validations passed, create allocations
+            # Create allocations
             for resource_id in resource_ids:
                 resource_id = int(resource_id)
                 quantity_key = f'quantity_{resource_id}'
@@ -368,16 +350,18 @@ def add_event():
             flash(f'Event "{title}" created successfully!', 'success')
         return redirect(url_for('list_events'))
     
-    # GET request - show form with all resources (filtering is done by JavaScript)
+    # GET request - show all resources (filtering is done by JavaScript)
     all_resources = Resource.query.order_by(Resource.category, Resource.resource_name).all()
-    
-    return render_template('events/add.html', resources=all_resources)
+    return render_template('events/add.html', resources=all_resources, current_user=get_current_user())
 
 
 @app.route('/events/edit/<int:event_id>', methods=['GET', 'POST'])
-@organiser_or_admin_required
 def edit_event(event_id):
     """Edit an existing event"""
+    redirect_response = require_role('admin', 'organiser')
+    if redirect_response:
+        return redirect_response
+    
     event = Event.query.get_or_404(event_id)
     
     if request.method == 'POST':
@@ -385,9 +369,8 @@ def edit_event(event_id):
         start_time_str = request.form.get('start_time')
         end_time_str = request.form.get('end_time')
         description = request.form.get('description')
-        timezone = 'Asia/Kolkata'  # Fixed to IST
         expected_attendees_str = request.form.get('expected_attendees')
-        resource_ids = request.form.getlist('resource_ids')  # Get selected resources
+        resource_ids = request.form.getlist('resource_ids')
         
         if not title or not start_time_str or not end_time_str:
             flash('Title, start time, and end time are required!', 'danger')
@@ -409,7 +392,6 @@ def edit_event(event_id):
             flash('Expected attendees must be at least 1!', 'danger')
             return redirect(url_for('edit_event', event_id=event_id))
         
-        # Convert resource_ids to integers
         resource_ids = [int(rid) for rid in resource_ids] if resource_ids else []
         
         # Get current allocations
@@ -424,7 +406,6 @@ def edit_event(event_id):
                 flash(f'Invalid resource selected!', 'danger')
                 return redirect(url_for('edit_event', event_id=event_id))
             
-            # Get quantity for equipment
             quantity = 1
             if resource.category == 'Equipment':
                 quantity_str = request.form.get(f'quantity_{resource_id}')
@@ -437,47 +418,38 @@ def edit_event(event_id):
                     flash(f'Invalid quantity for "{resource.resource_name}"!', 'danger')
                     return redirect(url_for('edit_event', event_id=event_id))
             
-            # Check resource conflicts (only if time changed or resource is new)
+            # Check conflicts if time changed or resource is new
             if (start_time != event.start_time or end_time != event.end_time or 
                 resource_id not in current_resource_ids):
                 conflicts = check_resource_conflict(
-                    resource_id, 
-                    start_time, 
-                    end_time,
+                    resource_id, start_time, end_time,
                     requested_quantity=quantity,
                     exclude_event_id=event_id
                 )
                 if conflicts:
                     conflict_titles = ', '.join([c['event'].title for c in conflicts])
-                    flash(f'Resource conflict detected for "{resource.resource_name}" '
-                          f'with events: {conflict_titles}', 'danger')
+                    flash(f'Resource conflict for "{resource.resource_name}" with: {conflict_titles}', 'danger')
                     return redirect(url_for('edit_event', event_id=event_id))
             
-            # Validate resource rules
-            valid, errors = validate_resource_allocation(
-                resource_id, event_id, quantity
-            )
+            valid, errors = validate_resource_allocation(resource_id, event_id, quantity)
             if not valid:
                 for error in errors:
                     flash(error, 'danger')
                 return redirect(url_for('edit_event', event_id=event_id))
         
-        # Update event basic fields
+        # Update event
         event.title = title
         event.start_time = start_time
         event.end_time = end_time
         event.description = description
-        event.timezone = timezone
         event.expected_attendees = expected_attendees
         
         # Update resource allocations
-        # Remove allocations that are no longer selected
         resources_to_remove = current_resource_ids - new_resource_ids
         for resource_id in resources_to_remove:
             allocation = current_allocations[resource_id]
             db.session.delete(allocation)
         
-        # Add or update allocations
         for resource_id in resource_ids:
             resource = Resource.query.get(resource_id)
             quantity = 1
@@ -486,23 +458,20 @@ def edit_event(event_id):
                 quantity = int(quantity_str) if quantity_str else 1
             
             if resource_id in current_allocations:
-                # Update existing allocation quantity
                 current_allocations[resource_id].reserved_quantity = quantity
             else:
-                # Create new allocation
                 allocation = EventResourceAllocation(
-                    event_id=event.id,
+                    event_id=event.event_id,
                     resource_id=resource_id,
                     reserved_quantity=quantity
                 )
                 db.session.add(allocation)
         
         db.session.commit()
-        
         flash(f'Event "{title}" updated successfully!', 'success')
         return redirect(url_for('list_events'))
     
-    # GET request - prepare data for template
+    # GET request
     resources = Resource.query.order_by(Resource.category, Resource.resource_name).all()
     allocated_resource_ids = {alloc.resource_id for alloc in event.allocations}
     allocated_quantities = {alloc.resource_id: alloc.reserved_quantity for alloc in event.allocations}
@@ -511,14 +480,17 @@ def edit_event(event_id):
                          event=event, 
                          resources=resources,
                          allocated_resource_ids=allocated_resource_ids,
-                         allocated_quantities=allocated_quantities)
-
+                         allocated_quantities=allocated_quantities,
+                         current_user=get_current_user())
 
 
 @app.route('/events/delete/<int:event_id>', methods=['POST'])
-@organiser_or_admin_required
 def delete_event(event_id):
     """Delete an event"""
+    redirect_response = require_role('admin', 'organiser')
+    if redirect_response:
+        return redirect_response
+    
     event = Event.query.get_or_404(event_id)
     title = event.title
     
@@ -532,27 +504,34 @@ def delete_event(event_id):
 # ==================== RESOURCE ROUTES ====================
 
 @app.route('/resources')
-@login_required
 def list_resources():
-    """List all resources (support optional category filtering)"""
+    """List all resources"""
+    redirect_response = require_login()
+    if redirect_response:
+        return redirect_response
+    
     selected_category = request.args.get('category')
-
-    # Distinct list of categories to populate filter UI
+    
+    # Get distinct categories
     raw_categories = db.session.query(Resource.category).distinct().order_by(Resource.category).all()
     categories = [c[0] for c in raw_categories if c[0]]
-
+    
     if selected_category:
         resources = Resource.query.filter_by(category=selected_category).order_by(Resource.resource_name).all()
     else:
         resources = Resource.query.order_by(Resource.resource_name).all()
-
-    return render_template('resources/list.html', resources=resources, categories=categories, selected_category=selected_category)
+    
+    return render_template('resources/list.html', resources=resources, categories=categories, 
+                         selected_category=selected_category, current_user=get_current_user())
 
 
 @app.route('/resources/add', methods=['GET', 'POST'])
-@organiser_or_admin_required
 def add_resource():
     """Add a new resource"""
+    redirect_response = require_role('admin', 'organiser')
+    if redirect_response:
+        return redirect_response
+    
     if request.method == 'POST':
         resource_name = request.form.get('resource_name')
         resource_type = request.form.get('resource_type')
@@ -580,12 +559,16 @@ def add_resource():
         flash(f'Resource "{resource_name}" added successfully!', 'success')
         return redirect(url_for('list_resources'))
     
-    return render_template('resources/add.html')
+    return render_template('resources/add.html', current_user=get_current_user())
+
 
 @app.route('/resources/edit/<int:resource_id>', methods=['GET', 'POST'])
-@organiser_or_admin_required
 def edit_resource(resource_id):
     """Edit an existing resource"""
+    redirect_response = require_role('admin', 'organiser')
+    if redirect_response:
+        return redirect_response
+    
     resource = Resource.query.get_or_404(resource_id)
     
     if request.method == 'POST':
@@ -612,12 +595,16 @@ def edit_resource(resource_id):
         flash(f'Resource "{resource_name}" updated successfully!', 'success')
         return redirect(url_for('list_resources'))
     
-    return render_template('resources/edit.html', resource=resource)
+    return render_template('resources/edit.html', resource=resource, current_user=get_current_user())
+
 
 @app.route('/resources/delete/<int:resource_id>', methods=['POST'])
-@admin_required
 def delete_resource(resource_id):
     """Delete a resource"""
+    redirect_response = require_role('admin')
+    if redirect_response:
+        return redirect_response
+    
     resource = Resource.query.get_or_404(resource_id)
     resource_name = resource.resource_name
     
@@ -629,17 +616,19 @@ def delete_resource(resource_id):
 
 
 @app.route('/resources/detail/<int:resource_id>')
-@login_required
 def resource_detail(resource_id):
-    """View resource details including timeline and history"""
+    """View resource details and allocations"""
+    redirect_response = require_login()
+    if redirect_response:
+        return redirect_response
+    
     resource = Resource.query.get_or_404(resource_id)
     
-    # Get all allocations for this resource (past and future)
-    allocations = EventResourceAllocation.query.filter_by(
-        resource_id=resource_id
-    ).order_by(EventResourceAllocation.allocated_at.desc()).all()
+    allocations = EventResourceAllocation.query.filter_by(resource_id=resource_id).order_by(
+        EventResourceAllocation.allocated_at.desc()
+    ).all()
     
-    # Separate into upcoming and past allocations
+    # Separate into upcoming and past
     now = datetime.now()
     upcoming_allocations = []
     past_allocations = []
@@ -650,24 +639,26 @@ def resource_detail(resource_id):
         else:
             past_allocations.append(alloc)
     
-    # Sort upcoming by start_time
     upcoming_allocations.sort(key=lambda x: x.event.start_time)
-    # Past allocations by end_time descending
     past_allocations.sort(key=lambda x: x.event.end_time, reverse=True)
     
     return render_template('resources/detail.html', 
                          resource=resource,
                          upcoming_allocations=upcoming_allocations,
                          past_allocations=past_allocations,
-                         now=now)
+                         now=now,
+                         current_user=get_current_user())
 
 
 # ==================== REPORT ROUTES ====================
 
 @app.route('/report', methods=['GET', 'POST'])
-@login_required
 def resource_report():
-    """Generate resource utilization report with dashboard"""
+    """Generate resource utilization report"""
+    redirect_response = require_login()
+    if redirect_response:
+        return redirect_response
+    
     report_data = None
     events_data = None
     start_date = None
@@ -685,7 +676,6 @@ def resource_report():
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
-            # Set end_date to end of day
             end_date = end_date.replace(hour=23, minute=59, second=59)
         except ValueError:
             flash('Invalid date format!', 'danger')
@@ -695,7 +685,7 @@ def resource_report():
             flash('Start date must be before end date!', 'danger')
             return redirect(url_for('resource_report'))
         
-        # Get all events in the date range
+        # Get events in date range
         events_in_range = Event.query.filter(
             Event.start_time <= end_date,
             Event.end_time >= start_date
@@ -706,7 +696,6 @@ def resource_report():
         report_data = []
         now = datetime.now()
         
-        # Category statistics
         category_stats = {'Venue': 0, 'Equipment': 0, 'Person': 0, 'Other': 0}
         total_events = len(events_in_range)
         total_allocations = 0
@@ -719,9 +708,7 @@ def resource_report():
             for allocation in resource.allocations:
                 event = allocation.event
                 
-                # Check if event is within date range
                 if event.start_time <= end_date and event.end_time >= start_date:
-                    # Calculate overlapping hours
                     overlap_start = max(event.start_time, start_date)
                     overlap_end = min(event.end_time, end_date)
                     
@@ -732,11 +719,9 @@ def resource_report():
                         event_count += 1
                         total_allocations += 1
                 
-                # Check for upcoming bookings
                 if event.start_time > now:
                     upcoming_bookings.append(event)
             
-            # Update category stats
             cat = resource.category if resource.category in category_stats else 'Other'
             category_stats[cat] += total_hours
             
@@ -748,7 +733,7 @@ def resource_report():
                     'upcoming_bookings': sorted(upcoming_bookings, key=lambda e: e.start_time)
                 })
         
-        # Prepare events data for table
+        # Events data
         events_data = []
         for event in events_in_range:
             allocated_resources = [alloc.resource.resource_name for alloc in event.allocations]
@@ -759,7 +744,7 @@ def resource_report():
                 'resource_count': len(allocated_resources)
             })
         
-        # Calculate statistics
+        # Statistics
         stats = {
             'total_resources': len(report_data),
             'total_hours': round(sum(r['total_hours'] for r in report_data), 2),
@@ -774,16 +759,16 @@ def resource_report():
                          events_data=events_data,
                          start_date=start_date, 
                          end_date=end_date,
-                         stats=stats)
+                         stats=stats,
+                         current_user=get_current_user())
 
 
 @app.route('/report/download-csv', methods=['POST'])
-@login_required
 def download_report_csv():
     """Download report as CSV"""
     start_date_str = request.form.get('start_date')
     end_date_str = request.form.get('end_date')
-    report_type = request.form.get('report_type', 'resources')  # 'resources' or 'events'
+    report_type = request.form.get('report_type', 'resources')
     
     try:
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
@@ -793,7 +778,6 @@ def download_report_csv():
         flash('Invalid date format!', 'danger')
         return redirect(url_for('resource_report'))
     
-    # Create CSV in memory
     output = StringIO()
     
     if report_type == 'resources':
@@ -828,10 +812,9 @@ def download_report_csv():
                     capacity_qty,
                     resource.max_hours_per_day or '-'
                 ])
-    
-    else:  # events
+    else:
         writer = csv.writer(output)
-        writer.writerow(['Event Title', 'Start Time', 'End Time', 'Duration (hours)', 'Expected Attendees', 'Allocated Resources', 'Created By'])
+        writer.writerow(['Event Title', 'Start Time', 'End Time', 'Duration (hours)', 'Expected Attendees', 'Allocated Resources'])
         
         events = Event.query.filter(
             Event.start_time <= end_date,
@@ -841,7 +824,6 @@ def download_report_csv():
         for event in events:
             resources = ', '.join([alloc.resource.resource_name for alloc in event.allocations])
             duration = round((event.end_time - event.start_time).total_seconds() / 3600, 2)
-            created_by = event.creator.username if event.creator else '-'
             
             writer.writerow([
                 event.title,
@@ -849,11 +831,9 @@ def download_report_csv():
                 event.end_time.strftime('%Y-%m-%d %H:%M'),
                 duration,
                 event.expected_attendees or '-',
-                resources or '-',
-                created_by
+                resources or '-'
             ])
     
-    # Create response
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv'
     filename = f'{report_type}_report_{start_date_str}_to_{end_date_str}.csv'
@@ -862,216 +842,14 @@ def download_report_csv():
     return response
 
 
-# ==================== REST API ENDPOINTS ====================
-
-@app.route('/api/events', methods=['GET', 'POST'])
-@login_required
-def api_events():
-    """REST API endpoint for events"""
-    if request.method == 'GET':
-        # Get events with optional date range filtering
-        from_date_str = request.args.get('from')
-        to_date_str = request.args.get('to')
-        
-        query = Event.query
-        
-        if from_date_str:
-            try:
-                from_date = datetime.strptime(from_date_str, '%Y-%m-%d')
-                query = query.filter(Event.start_time >= from_date)
-            except ValueError:
-                return jsonify({'error': 'Invalid from date format. Use YYYY-MM-DD'}), 400
-        
-        if to_date_str:
-            try:
-                to_date = datetime.strptime(to_date_str, '%Y-%m-%d')
-                to_date = to_date.replace(hour=23, minute=59, second=59)
-                query = query.filter(Event.end_time <= to_date)
-            except ValueError:
-                return jsonify({'error': 'Invalid to date format. Use YYYY-MM-DD'}), 400
-        
-        events = query.order_by(Event.start_time).all()
-        
-        return jsonify({
-            'success': True,
-            'count': len(events),
-            'events': [{
-                'event_id': e.event_id,
-                'title': e.title,
-                'start_time': e.start_time.isoformat(),
-                'end_time': e.end_time.isoformat(),
-                'description': e.description,
-                'expected_attendees': e.expected_attendees,
-                'timezone': e.timezone,
-                'resources': [{'resource_id': a.resource_id, 'resource_name': a.resource.resource_name} 
-                             for a in e.allocations]
-            } for e in events]
-        }), 200
-    
-    elif request.method == 'POST':
-        # Create new event (organiser or admin only)
-        if current_user.role not in ['admin', 'organiser']:
-            return jsonify({'error': 'Permission denied. Only organisers and admins can create events.'}), 403
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        title = data.get('title')
-        start_time_str = data.get('start_time')
-        end_time_str = data.get('end_time')
-        description = data.get('description', '')
-        expected_attendees = data.get('expected_attendees', 0)
-        timezone = data.get('timezone', 'UTC')
-        
-        if not title or not start_time_str or not end_time_str:
-            return jsonify({'error': 'title, start_time, and end_time are required'}), 400
-        
-        try:
-            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-            end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
-        except ValueError:
-            return jsonify({'error': 'Invalid datetime format. Use ISO 8601 format'}), 400
-        
-        if start_time >= end_time:
-            return jsonify({'error': 'start_time must be before end_time'}), 400
-        
-        new_event = Event(
-            title=title,
-            start_time=start_time,
-            end_time=end_time,
-            description=description,
-            expected_attendees=expected_attendees,
-            timezone=timezone,
-            created_by=current_user.user_id
-        )
-        
-        db.session.add(new_event)
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Event created successfully',
-            'event': {
-                'event_id': new_event.event_id,
-                'title': new_event.title,
-                'start_time': new_event.start_time.isoformat(),
-                'end_time': new_event.end_time.isoformat()
-            }
-        }), 201
-
-
-@app.route('/api/events/<int:event_id>/allocate', methods=['POST'])
-@login_required
-def api_allocate_resource(event_id):
-    """REST API endpoint to allocate resources to an event"""
-    if current_user.role not in ['admin', 'organiser']:
-        return jsonify({'error': 'Permission denied. Only organisers and admins can allocate resources.'}), 403
-    
-    event = Event.query.get(event_id)
-    if not event:
-        return jsonify({'error': 'Event not found'}), 404
-    
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
-    resource_ids = data.get('resource_ids', [])
-    quantities = data.get('quantities', {})  # {resource_id: quantity}
-    
-    if not resource_ids:
-        return jsonify({'error': 'resource_ids array is required'}), 400
-    
-    # Validate all resources and check for conflicts
-    errors = []
-    for resource_id in resource_ids:
-        resource = Resource.query.get(resource_id)
-        if not resource:
-            errors.append(f'Resource {resource_id} not found')
-            continue
-        
-        requested_qty = quantities.get(str(resource_id), 1)
-        valid, validation_errors = validate_resource_allocation(resource_id, event_id, requested_qty)
-        
-        if not valid:
-            errors.extend([f'{resource.resource_name}: {err}' for err in validation_errors])
-    
-    if errors:
-        return jsonify({
-            'success': False,
-            'error': 'Validation failed',
-            'details': errors
-        }), 400
-    
-    # Clear existing allocations and add new ones
-    EventResourceAllocation.query.filter_by(event_id=event_id).delete()
-    
-    for resource_id in resource_ids:
-        requested_qty = quantities.get(str(resource_id), 1)
-        allocation = EventResourceAllocation(
-            event_id=event_id,
-            resource_id=resource_id,
-            reserved_quantity=requested_qty
-        )
-        db.session.add(allocation)
-    
-    db.session.commit()
-    
-    return jsonify({
-        'success': True,
-        'message': 'Resources allocated successfully',
-        'allocations': len(resource_ids)
-    }), 200
-
-
-@app.route('/api/conflicts', methods=['GET'])
-@login_required
-def api_check_conflicts():
-    """REST API endpoint to check conflicts for an event"""
-    event_id = request.args.get('event_id', type=int)
-    
-    if not event_id:
-        return jsonify({'error': 'event_id parameter is required'}), 400
-    
-    event = Event.query.get(event_id)
-    if not event:
-        return jsonify({'error': 'Event not found'}), 404
-    
-    all_conflicts = []
-    
-    for allocation in event.allocations:
-        conflicts = check_resource_conflict(
-            allocation.resource_id,
-            event.start_time,
-            event.end_time,
-            exclude_event_id=event_id,
-            requested_quantity=allocation.reserved_quantity
-        )
-        
-        if conflicts:
-            for conflict in conflicts:
-                all_conflicts.append({
-                    'resource_id': allocation.resource_id,
-                    'resource_name': allocation.resource.resource_name,
-                    'conflicting_event_id': conflict['event'].event_id,
-                    'conflicting_event_title': conflict['event'].title,
-                    'overlap_start': conflict['overlap_start'].isoformat(),
-                    'overlap_end': conflict['overlap_end'].isoformat()
-                })
-    
-    return jsonify({
-        'success': True,
-        'event_id': event_id,
-        'has_conflicts': len(all_conflicts) > 0,
-        'conflict_count': len(all_conflicts),
-        'conflicts': all_conflicts
-    }), 200
-
+# ==================== API ENDPOINT ====================
 
 @app.route('/api/available-resources', methods=['GET'])
-@login_required
 def api_available_resources():
-    """REST API endpoint to get available resources for a given time period"""
+    """Get available resources for a given time period"""
+    if not is_logged_in():
+        return jsonify({'error': 'Authentication required'}), 401
+    
     start_time_str = request.args.get('start_time')
     end_time_str = request.args.get('end_time')
     exclude_event_id = request.args.get('exclude_event_id', type=int)
@@ -1097,10 +875,10 @@ def api_available_resources():
             start_time,
             end_time,
             exclude_event_id=exclude_event_id,
-            requested_quantity=1  # Check if at least 1 unit is available
+            requested_quantity=1
         )
         
-        if not conflicts:  # No conflicts, resource is available
+        if not conflicts:
             available_resources.append({
                 'resource_id': resource.resource_id,
                 'resource_name': resource.resource_name,
@@ -1120,11 +898,11 @@ def api_available_resources():
     }), 200
 
 
-# ==================== SEED DATA ROUTE ====================
+# ==================== SEED DATA ====================
 
 @app.route('/seed')
 def seed_data():
-    """Seed the database with sample data"""
+    """Seed database with sample data"""
     
     # Clear existing data
     EventResourceAllocation.query.delete()
@@ -1133,13 +911,13 @@ def seed_data():
     User.query.delete()
     
     # Add sample users
-    admin = User(username='admin', email='admin@example.com', role='admin')
+    admin = User(username='admin', email='admin@example.com', role='admin', is_active=True)
     admin.set_password('admin123')
     
-    organiser = User(username='organiser', email='organiser@example.com', role='organiser')
+    organiser = User(username='organiser', email='organiser@example.com', role='organiser', is_active=True)
     organiser.set_password('organiser123')
     
-    viewer = User(username='viewer', email='viewer@example.com', role='viewer')
+    viewer = User(username='viewer', email='viewer@example.com', role='viewer', is_active=True)
     viewer.set_password('viewer123')
     
     db.session.add(admin)
@@ -1147,18 +925,13 @@ def seed_data():
     db.session.add(viewer)
     db.session.commit()
     
-    # Add sample resources with new fields
+    # Add sample resources
     resources = [
-        Resource(resource_name='Conference Room A', resource_type='Room', category='Venue', 
-                capacity=50, quantity=1),
-        Resource(resource_name='Conference Room B', resource_type='Room', category='Venue', 
-                capacity=30, quantity=1),
-        Resource(resource_name='Projector 1', resource_type='Equipment', category='Equipment', 
-                quantity=2),
-        Resource(resource_name='Dr. Smith', resource_type='Instructor', category='Person', 
-                max_hours_per_day=8.0),
-        Resource(resource_name='Lab Computer 1', resource_type='Equipment', category='Equipment', 
-                quantity=10),
+        Resource(resource_name='Conference Room A', resource_type='Room', category='Venue', capacity=50, quantity=1),
+        Resource(resource_name='Conference Room B', resource_type='Room', category='Venue', capacity=30, quantity=1),
+        Resource(resource_name='Projector', resource_type='Equipment', category='Equipment', quantity=2),
+        Resource(resource_name='Dr. Smith', resource_type='Instructor', category='Person', max_hours_per_day=8.0),
+        Resource(resource_name='Lab Computers', resource_type='Equipment', category='Equipment', quantity=10),
     ]
     
     for resource in resources:
@@ -1166,7 +939,7 @@ def seed_data():
     
     db.session.commit()
     
-    # Add sample events with new fields
+    # Add sample events
     now = datetime.now()
     events = [
         Event(
@@ -1175,7 +948,7 @@ def seed_data():
             end_time=now + timedelta(days=1, hours=12),
             description='Introduction to Python programming',
             expected_attendees=25,
-            timezone='UTC',
+            timezone='Asia/Kolkata',
             created_by=admin.user_id
         ),
         Event(
@@ -1184,7 +957,7 @@ def seed_data():
             end_time=now + timedelta(days=1, hours=15),
             description='Weekly team sync-up',
             expected_attendees=10,
-            timezone='UTC',
+            timezone='Asia/Kolkata',
             created_by=organiser.user_id
         ),
         Event(
@@ -1193,16 +966,7 @@ def seed_data():
             end_time=now + timedelta(days=2, hours=11),
             description='HTML, CSS, and JavaScript basics',
             expected_attendees=40,
-            timezone='UTC',
-            created_by=admin.user_id
-        ),
-        Event(
-            title='Project Presentation',
-            start_time=now + timedelta(days=3, hours=13),
-            end_time=now + timedelta(days=3, hours=15),
-            description='Final project presentations',
-            expected_attendees=20,
-            timezone='UTC',
+            timezone='Asia/Kolkata',
             created_by=organiser.user_id
         ),
     ]
@@ -1212,15 +976,13 @@ def seed_data():
     
     db.session.commit()
     
-    # Add sample allocations with reserved quantities
+    # Add sample allocations
     allocations = [
-        EventResourceAllocation(event_id=1, resource_id=1, reserved_quantity=1),  # Python Workshop - Conference Room A
-        EventResourceAllocation(event_id=1, resource_id=3, reserved_quantity=1),  # Python Workshop - Projector 1
-        EventResourceAllocation(event_id=2, resource_id=2, reserved_quantity=1),  # Team Meeting - Conference Room B
-        EventResourceAllocation(event_id=3, resource_id=1, reserved_quantity=1),  # Web Dev Course - Conference Room A
-        EventResourceAllocation(event_id=3, resource_id=4, reserved_quantity=1),  # Web Dev Course - Dr. Smith
-        EventResourceAllocation(event_id=4, resource_id=1, reserved_quantity=1),  # Presentation - Conference Room A
-        EventResourceAllocation(event_id=4, resource_id=3, reserved_quantity=1),  # Presentation - Projector 1
+        EventResourceAllocation(event_id=1, resource_id=1, reserved_quantity=1),
+        EventResourceAllocation(event_id=1, resource_id=3, reserved_quantity=1),
+        EventResourceAllocation(event_id=2, resource_id=2, reserved_quantity=1),
+        EventResourceAllocation(event_id=3, resource_id=1, reserved_quantity=1),
+        EventResourceAllocation(event_id=3, resource_id=4, reserved_quantity=1),
     ]
     
     for allocation in allocations:
@@ -1228,8 +990,9 @@ def seed_data():
     
     db.session.commit()
     
-    flash('Sample data seeded! Login: admin/admin123, organiser/organiser123, viewer/viewer123', 'success')
-    return redirect(url_for('login'))
+    flash('Sample data seeded successfully! Users: admin/admin123, organiser/organiser123, viewer/viewer123', 'success')
+    return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
     app.run(debug=True)

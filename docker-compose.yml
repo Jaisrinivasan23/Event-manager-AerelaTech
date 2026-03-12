@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # Production setup with PostgreSQL
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: event-scheduler-app
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-your-production-secret-key-change-this}
+      - DATABASE_URL=postgresql://eventuser:eventpass@db:5432/eventscheduler
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./instance:/app/instance
+    networks:
+      - event-scheduler-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:15-alpine
+    container_name: event-scheduler-db
+    environment:
+      - POSTGRES_USER=eventuser
+      - POSTGRES_PASSWORD=eventpass
+      - POSTGRES_DB=eventscheduler
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - event-scheduler-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+networks:
+  event-scheduler-network:
+    driver: bridge

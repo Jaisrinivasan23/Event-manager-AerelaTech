@@ -12,4 +12,4 @@ if __name__ == '__main__':
         print("\nNext steps:")
         print("1. Run the app: python app.py")
         print("2. Visit http://localhost:5000/seed to add sample data")
-        print("3. Login with: admin / admin123")
+        print("3. Access the app at http://localhost:5000")
