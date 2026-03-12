@@ -908,8 +908,6 @@ def events_api():
 
 For questions, issues, or feature requests:
 - Check the main [README.md](README.md)
-- Review test examples in `tests/test_conflict.py`
-- Contact: hr@aerele.in
 
 ---
 

@@ -985,11 +985,6 @@ docker-compose up --build
 
 ---
 
-## 📧 Submission Details
-
-**To**: hr@aerele.in  
-**CC**: vignesh@aerele.in  
-**Subject**: Assignment Submission - Event Scheduling & Resource Allocation System
 
 **Include**:
 - ✓ GitHub repository link
@@ -997,24 +992,6 @@ docker-compose up --build
 - ✓ Screenshots (see Screenshots section)
 - ✓ Brief implementation summary
 
----
 
-## 📄 License
-
-Educational project for Aerele Technologies hiring assignment.  
-Free to use and modify for educational purposes.
 
 ---
-
-## 🙏 Acknowledgments
-
-- **Aerele Technologies** - For the comprehensive assignment
-- **Flask Community** - For excellent documentation
-- **Open Source Contributors** - For the amazing tools
-
----
-
-**Built with ❤️ for Aerele Technologies**  
-**Author**: Candidate  
-**Date**: March 2026  
-**Version**: 2.0 (Final)
